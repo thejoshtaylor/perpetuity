@@ -19,7 +19,7 @@ from app.models import (
     User,
     UserCreate,
     UserPublic,
-    UserRegister,
+    UserRole,
     UsersPublic,
     UserUpdate,
     UserUpdateMe,
@@ -133,29 +133,13 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     """
     Delete own user.
     """
-    if current_user.is_superuser:
+    if current_user.role == UserRole.system_admin:
         raise HTTPException(
             status_code=403, detail="Super users are not allowed to delete themselves"
         )
     session.delete(current_user)
     session.commit()
     return Message(message="User deleted successfully")
-
-
-@router.post("/signup", response_model=UserPublic)
-def register_user(session: SessionDep, user_in: UserRegister) -> Any:
-    """
-    Create new user without the need to be logged in.
-    """
-    user = crud.get_user_by_email(session=session, email=user_in.email)
-    if user:
-        raise HTTPException(
-            status_code=400,
-            detail="The user with this email already exists in the system",
-        )
-    user_create = UserCreate.model_validate(user_in)
-    user = crud.create_user(session=session, user_create=user_create)
-    return user
 
 
 @router.get("/{user_id}", response_model=UserPublic)
@@ -168,7 +152,7 @@ def read_user_by_id(
     user = session.get(User, user_id)
     if user == current_user:
         return user
-    if not current_user.is_superuser:
+    if current_user.role != UserRole.system_admin:
         raise HTTPException(
             status_code=403,
             detail="The user doesn't have enough privileges",
