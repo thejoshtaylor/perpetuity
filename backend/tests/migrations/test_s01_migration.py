@@ -59,7 +59,31 @@ def alembic_cfg() -> Config:
 
 
 @pytest.fixture(autouse=True)
-def _restore_head_after(alembic_cfg: Config) -> Generator[None, None, None]:
+def _release_autouse_db_session(db: Session) -> Generator[None, None, None]:
+    """Release every connection on the engine pool BEFORE running migrations.
+
+    The session-scoped autouse `db` fixture in tests/conftest.py keeps a
+    SQLAlchemy Session open for the entire test session. SQLAlchemy implicitly
+    starts a transaction on first access; that transaction holds an
+    AccessShareLock on the `user` table, which blocks alembic's
+    DROP COLUMN / ALTER COLUMN statements indefinitely.
+
+    Commit + expire + close the autouse session, then dispose the engine pool
+    so alembic gets a fresh connection that isn't sharing locks with anything.
+    """
+    db.commit()
+    db.expire_all()
+    db.close()
+    engine.dispose()
+    yield
+    # No restore here — the test body's finally / the _restore_head_after
+    # fixture handles head restoration.
+
+
+@pytest.fixture(autouse=True)
+def _restore_head_after(
+    alembic_cfg: Config, _release_autouse_db_session: None
+) -> Generator[None, None, None]:
     """Ensure every test in this module leaves the DB on head.
 
     The rest of the suite assumes head schema. Even if a test raises, we force
@@ -72,6 +96,10 @@ def _restore_head_after(alembic_cfg: Config) -> Generator[None, None, None]:
         pytest.fail(
             f"Could not restore DB to head after migration test: {restore_err}"
         )
+    finally:
+        # Make sure we drop any connections alembic opened, so the next test
+        # module doesn't inherit a broken pool.
+        engine.dispose()
 
 
 def _truncate_user_table() -> None:

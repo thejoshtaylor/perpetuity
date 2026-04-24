@@ -81,9 +81,13 @@ class UsersPublic(SQLModel):
     count: int
 
 
-# Minimal Team stub — S02 will extend with real columns (name, slug, is_personal, ...)
+# Team: user or personal workspace owner. Personal teams (is_personal=True)
+# are auto-created 1:1 with users and cannot be invited to (S02 invite stub).
 class Team(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=255)
+    slug: str = Field(min_length=1, max_length=64, unique=True, index=True)
+    is_personal: bool = Field(default=False, nullable=False)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -91,6 +95,27 @@ class Team(SQLModel, table=True):
     members: list["TeamMember"] = Relationship(
         back_populates="team", cascade_delete=True
     )
+
+
+class TeamPublic(SQLModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    is_personal: bool
+    created_at: datetime | None = None
+
+
+class TeamCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class TeamWithRole(SQLModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    is_personal: bool
+    created_at: datetime | None = None
+    role: TeamRole
 
 
 # Join table — user ↔ team with per-membership role
