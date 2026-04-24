@@ -3,7 +3,8 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
@@ -13,6 +14,7 @@ from app.core.config import settings
 from app.crud import InviteRejectReason
 from app.models import (
     InviteIssued,
+    MemberRoleUpdate,
     Team,
     TeamCreate,
     TeamMember,
@@ -40,6 +42,40 @@ class TeamsPublic(dict):
     Using a plain dict is sufficient; FastAPI serializes the declared
     response_model via the actual shape below without needing a SQLModel.
     """
+
+
+def _assert_caller_is_team_admin(
+    session: SessionDep, team_id: uuid.UUID, caller_id: uuid.UUID
+) -> Team:
+    """Return the Team when caller is an admin on it, else raise 404/403.
+
+    Collapses the shared "team exists + caller is admin" precondition used
+    by every mutation endpoint below — invite, PATCH role, DELETE member.
+    """
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    membership = session.exec(
+        select(TeamMember)
+        .where(TeamMember.team_id == team_id)
+        .where(TeamMember.user_id == caller_id)
+    ).first()
+    if membership is None or membership.role != TeamRole.admin:
+        raise HTTPException(
+            status_code=403, detail="Only team admins can invite"
+        )
+    return team
+
+
+def _team_admin_count(session: SessionDep, team_id: uuid.UUID) -> int:
+    """Count admins on a team via a single aggregate query (no row fetch)."""
+    return session.exec(
+        select(func.count())
+        .select_from(TeamMember)
+        .where(TeamMember.team_id == team_id)
+        .where(TeamMember.role == TeamRole.admin)
+    ).one()
 
 
 @router.get("/")
@@ -99,19 +135,7 @@ def invite_to_team(
     - 403 "Cannot invite to personal teams" if team.is_personal.
     - 200 with {code, url, expires_at} on success.
     """
-    team = session.get(Team, team_id)
-    if team is None:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    membership = session.exec(
-        select(TeamMember)
-        .where(TeamMember.team_id == team_id)
-        .where(TeamMember.user_id == current_user.id)
-    ).first()
-    if membership is None or membership.role != TeamRole.admin:
-        raise HTTPException(
-            status_code=403, detail="Only team admins can invite"
-        )
+    team = _assert_caller_is_team_admin(session, team_id, current_user.id)
 
     if team.is_personal:
         logger.info(
@@ -199,3 +223,133 @@ def join_team(
         code_hash,
     )
     return TeamWithRole(**team.model_dump(), role=membership.role)
+
+
+@router.patch(
+    "/{team_id}/members/{user_id}/role", response_model=TeamWithRole
+)
+def update_member_role(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    team_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: MemberRoleUpdate,
+) -> Any:
+    """Promote or demote a team member's role.
+
+    - 404 if team or target membership is missing.
+    - 403 if caller is not an admin on the team.
+    - 400 if the mutation would leave the team with zero admins.
+    - 200 TeamWithRole on success (echoes the target's new role).
+    """
+    team = _assert_caller_is_team_admin(session, team_id, current_user.id)
+
+    target = session.exec(
+        select(TeamMember)
+        .where(TeamMember.team_id == team_id)
+        .where(TeamMember.user_id == user_id)
+    ).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+
+    old_role = target.role
+    new_role = body.role
+
+    # Precondition: demoting the only admin to member is forbidden.
+    if (
+        old_role == TeamRole.admin
+        and new_role == TeamRole.member
+        and _team_admin_count(session, team_id) <= 1
+    ):
+        raise HTTPException(
+            status_code=400, detail="Cannot demote the last admin"
+        )
+
+    if old_role != new_role:
+        target.role = new_role
+        try:
+            session.add(target)
+            session.commit()
+            session.refresh(target)
+        except Exception:
+            session.rollback()
+            logger.warning(
+                "member_update_tx_rollback team_id=%s target_user_id=%s actor_id=%s",
+                team_id,
+                user_id,
+                current_user.id,
+            )
+            raise
+
+    logger.info(
+        "member_role_changed team_id=%s target_user_id=%s old_role=%s new_role=%s actor_id=%s",
+        team_id,
+        user_id,
+        old_role.value,
+        new_role.value,
+        current_user.id,
+    )
+    return TeamWithRole(**team.model_dump(), role=target.role)
+
+
+@router.delete("/{team_id}/members/{user_id}", status_code=204)
+def remove_member(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    team_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Response:
+    """Remove a member from a team.
+
+    - 404 if team or target membership is missing.
+    - 403 if caller is not an admin on the team.
+    - 400 if team is personal (personal teams are owner-scoped by construction).
+    - 400 if target is the sole remaining admin.
+    - 204 on success (empty body).
+    """
+    team = _assert_caller_is_team_admin(session, team_id, current_user.id)
+
+    if team.is_personal:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot remove members from personal teams",
+        )
+
+    target = session.exec(
+        select(TeamMember)
+        .where(TeamMember.team_id == team_id)
+        .where(TeamMember.user_id == user_id)
+    ).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+
+    if (
+        target.role == TeamRole.admin
+        and _team_admin_count(session, team_id) <= 1
+    ):
+        raise HTTPException(
+            status_code=400, detail="Cannot remove the last admin"
+        )
+
+    try:
+        session.delete(target)
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning(
+            "member_remove_tx_rollback team_id=%s target_user_id=%s actor_id=%s",
+            team_id,
+            user_id,
+            current_user.id,
+        )
+        raise
+
+    logger.info(
+        "member_removed team_id=%s target_user_id=%s actor_id=%s",
+        team_id,
+        user_id,
+        current_user.id,
+    )
+    return Response(status_code=204)
