@@ -1,5 +1,7 @@
 import re
+import secrets
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -10,12 +12,31 @@ from app.models import (
     Item,
     ItemCreate,
     Team,
+    TeamInvite,
     TeamMember,
     TeamRole,
     User,
     UserCreate,
     UserUpdate,
+    get_datetime_utc,
 )
+
+
+INVITE_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+class InviteRejectReason(str):
+    """Sentinel reasons raised by accept_team_invite via ValueError.
+
+    Using bare str subclass values keeps the exception payload a plain string
+    (matches FastAPI HTTP detail shape) while giving callers a closed set of
+    comparable reason tokens.
+    """
+
+    UNKNOWN = "unknown"
+    EXPIRED = "expired"
+    USED = "used"
+    DUPLICATE_MEMBER = "duplicate_member"
 
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
@@ -176,3 +197,89 @@ def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -
     session.commit()
     session.refresh(db_item)
     return db_item
+
+
+def create_team_invite(
+    *,
+    session: Session,
+    team_id: uuid.UUID,
+    created_by: uuid.UUID,
+    ttl_seconds: int = INVITE_TTL_SECONDS,
+) -> TeamInvite:
+    """Issue a new TeamInvite bearer code.
+
+    Caller is responsible for authorizing — this helper does no membership or
+    is_personal checks. Commits once and returns the refreshed row.
+    """
+    code = secrets.token_urlsafe(24)
+    expires_at = get_datetime_utc() + timedelta(seconds=ttl_seconds)
+    invite = TeamInvite(
+        code=code,
+        team_id=team_id,
+        created_by=created_by,
+        expires_at=expires_at,
+    )
+    try:
+        session.add(invite)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    session.refresh(invite)
+    return invite
+
+
+def accept_team_invite(
+    *,
+    session: Session,
+    code: str,
+    caller_id: uuid.UUID,
+) -> tuple[Team, TeamMember]:
+    """Atomically consume an invite code and insert the new TeamMember.
+
+    Raises ValueError(reason) where reason is an InviteRejectReason constant
+    (unknown/expired/used/duplicate_member) — route layer maps to 404/410/409.
+    On any other failure (e.g. FK violation from a race), rolls back and
+    re-raises the original exception so we never leave the invite marked used
+    without a matching team_member row (mirrors create_user_with_personal_team).
+    """
+    invite = session.exec(
+        select(TeamInvite).where(TeamInvite.code == code)
+    ).first()
+    if invite is None:
+        raise ValueError(InviteRejectReason.UNKNOWN)
+
+    now = get_datetime_utc()
+    if invite.expires_at < now:
+        raise ValueError(InviteRejectReason.EXPIRED)
+    if invite.used_at is not None:
+        raise ValueError(InviteRejectReason.USED)
+
+    existing_member = session.exec(
+        select(TeamMember)
+        .where(TeamMember.team_id == invite.team_id)
+        .where(TeamMember.user_id == caller_id)
+    ).first()
+    if existing_member is not None:
+        raise ValueError(InviteRejectReason.DUPLICATE_MEMBER)
+
+    try:
+        membership = TeamMember(
+            user_id=caller_id, team_id=invite.team_id, role=TeamRole.member
+        )
+        session.add(membership)
+        invite.used_at = now
+        invite.used_by = caller_id
+        session.add(invite)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    session.refresh(membership)
+    team = session.get(Team, invite.team_id)
+    if team is None:
+        # Theoretical: team was hard-deleted between fetch and commit. Let the
+        # caller surface a 500 — we won't pretend we joined a non-existent team.
+        raise RuntimeError("team vanished during invite accept")
+    return team, membership

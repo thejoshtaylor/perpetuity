@@ -4,12 +4,15 @@ Real FastAPI app + real Postgres via the session-scoped `db` fixture and
 module-scoped `client` fixture in tests/conftest.py. No mocks.
 """
 import re
+import uuid
+from datetime import timedelta
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
 
 from app.core.config import settings
+from app.models import TeamInvite, TeamMember, get_datetime_utc
 from tests.utils.utils import random_email, random_lower_string
 
 SIGNUP_URL = f"{settings.API_V1_STR}/auth/signup"
@@ -139,11 +142,13 @@ def test_invite_on_personal_team_returns_403(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. POST /teams/{non_personal_id}/invite → 501 stub (S03 will flip this red)
+# 7. POST /teams/{non_personal_id}/invite → 200 with {code, url, expires_at}
 # ---------------------------------------------------------------------------
 
 
-def test_invite_on_non_personal_team_returns_501_stub(client: TestClient) -> None:
+def test_invite_on_non_personal_team_returns_code_url_and_expires_at(
+    client: TestClient,
+) -> None:
     _, cookies = _signup(client)
 
     # Create a non-personal team.
@@ -153,12 +158,12 @@ def test_invite_on_non_personal_team_returns_501_stub(client: TestClient) -> Non
 
     invite_url = f"{settings.API_V1_STR}/teams/{non_personal_id}/invite"
     r2 = client.post(invite_url, cookies=cookies)
-    # S03 contract: when real invites land, this should flip to 200. The test
-    # is intentional red-flag bait for the next slice's executor.
-    assert r2.status_code == 501, (
-        "If this test is failing with 200, S03 has wired real invites — "
-        "update this assertion to match the new contract."
-    )
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert "code" in body and isinstance(body["code"], str) and len(body["code"]) >= 20
+    assert "url" in body and body["url"].endswith(f"/invite/{body['code']}")
+    assert body["url"].startswith(settings.FRONTEND_HOST)
+    assert "expires_at" in body and isinstance(body["expires_at"], str)
 
 
 # ---------------------------------------------------------------------------
@@ -209,3 +214,237 @@ def test_slug_collision_on_identical_names_still_succeeds(
     assert team_b["slug"].startswith("research-"), team_b["slug"]
 
     assert team_a["slug"] != team_b["slug"], "suffixes must disambiguate"
+
+
+# ---------------------------------------------------------------------------
+# Join-flow helpers (S03)
+# ---------------------------------------------------------------------------
+
+
+def _issue_invite(
+    client: TestClient, cookies: httpx.Cookies, team_name: str = "Joiners"
+) -> tuple[str, str]:
+    """Create a non-personal team via the admin + issue an invite.
+
+    Returns (team_id, code).
+    """
+    r = client.post(TEAMS_URL, json={"name": team_name}, cookies=cookies)
+    assert r.status_code == 200, r.text
+    team_id = r.json()["id"]
+    invite_url = f"{settings.API_V1_STR}/teams/{team_id}/invite"
+    r2 = client.post(invite_url, cookies=cookies)
+    assert r2.status_code == 200, r2.text
+    return team_id, r2.json()["code"]
+
+
+# ---------------------------------------------------------------------------
+# 10. Invite as non-admin member → 403
+# ---------------------------------------------------------------------------
+
+
+def test_invite_by_non_admin_member_returns_403(
+    client: TestClient, db: Session
+) -> None:
+    _admin_id, cookies_admin = _signup(client)
+    team_id, code = _issue_invite(client, cookies_admin, team_name="WithMember")
+
+    # Member accepts → is now a TeamRole.member.
+    _member_id, cookies_member = _signup(client)
+    r_join = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_member
+    )
+    assert r_join.status_code == 200, r_join.text
+
+    # Member tries to invite — should 403.
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/{team_id}/invite", cookies=cookies_member
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Only team admins can invite"
+
+
+# ---------------------------------------------------------------------------
+# 11. Join: happy path — second user redeems code and becomes member
+# ---------------------------------------------------------------------------
+
+
+def test_join_with_valid_code_adds_caller_as_member(
+    client: TestClient,
+) -> None:
+    _, cookies_admin = _signup(client)
+    team_id, code = _issue_invite(client, cookies_admin, team_name="JoinHappy")
+
+    _, cookies_joiner = _signup(client)
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_joiner
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["id"] == team_id
+    assert body["role"] == "member"
+    assert body["is_personal"] is False
+
+    # Joiner's GET /teams now shows personal + joined.
+    r2 = client.get(TEAMS_URL, cookies=cookies_joiner)
+    assert r2.status_code == 200
+    ids = {t["id"] for t in r2.json()["data"]}
+    assert team_id in ids
+
+
+# ---------------------------------------------------------------------------
+# 12. Join: unknown code → 404
+# ---------------------------------------------------------------------------
+
+
+def test_join_with_unknown_code_returns_404(client: TestClient) -> None:
+    _, cookies = _signup(client)
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/join/does-not-exist-abc123",
+        cookies=cookies,
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Invite not found"
+
+
+# ---------------------------------------------------------------------------
+# 13. Join: expired code → 410
+# ---------------------------------------------------------------------------
+
+
+def test_join_with_expired_code_returns_410(
+    client: TestClient, db: Session
+) -> None:
+    _, cookies_admin = _signup(client)
+    _team_id, code = _issue_invite(client, cookies_admin, team_name="ExpireMe")
+
+    # Force expiry by rewinding the row's expires_at to yesterday.
+    invite = db.exec(select(TeamInvite).where(TeamInvite.code == code)).first()
+    assert invite is not None
+    invite.expires_at = get_datetime_utc() - timedelta(days=1)
+    db.add(invite)
+    db.commit()
+
+    _, cookies_joiner = _signup(client)
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_joiner
+    )
+    assert r.status_code == 410
+    assert r.json()["detail"] == "Invite expired"
+
+
+# ---------------------------------------------------------------------------
+# 14. Join: already-used code → 410
+# ---------------------------------------------------------------------------
+
+
+def test_join_with_already_used_code_returns_410(
+    client: TestClient,
+) -> None:
+    _, cookies_admin = _signup(client)
+    _team_id, code = _issue_invite(client, cookies_admin, team_name="SpentCode")
+
+    # User B accepts.
+    _, cookies_b = _signup(client)
+    r_b = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_b
+    )
+    assert r_b.status_code == 200, r_b.text
+
+    # User C tries the same code — should 410.
+    _, cookies_c = _signup(client)
+    r_c = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_c
+    )
+    assert r_c.status_code == 410
+    assert r_c.json()["detail"] == "Invite already used"
+
+
+# ---------------------------------------------------------------------------
+# 15. Join: caller already a member → 409 (inviter re-joining their own team)
+# ---------------------------------------------------------------------------
+
+
+def test_join_by_existing_member_returns_409(
+    client: TestClient,
+) -> None:
+    _, cookies_admin = _signup(client)
+    _team_id, code = _issue_invite(client, cookies_admin, team_name="SelfJoin")
+
+    # Admin is already a member of the team — redeeming own code → 409.
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_admin
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"] == "Already a member"
+
+
+# ---------------------------------------------------------------------------
+# 16. Join: no cookie → 401
+# ---------------------------------------------------------------------------
+
+
+def test_join_without_cookie_returns_401(client: TestClient) -> None:
+    client.cookies.clear()
+    r = client.post(f"{settings.API_V1_STR}/teams/join/anything")
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 17. Invite on missing team → 404
+# ---------------------------------------------------------------------------
+
+
+def test_invite_on_missing_team_returns_404(client: TestClient) -> None:
+    _, cookies = _signup(client)
+    bogus = uuid.uuid4()
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/{bogus}/invite", cookies=cookies
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Team not found"
+
+
+# ---------------------------------------------------------------------------
+# 18. Invite on non-UUID team_id → 422 (FastAPI validator)
+# ---------------------------------------------------------------------------
+
+
+def test_invite_on_non_uuid_team_id_returns_422(client: TestClient) -> None:
+    _, cookies = _signup(client)
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/not-a-uuid/invite", cookies=cookies
+    )
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# 19. Atomicity: a rejected join (expired) leaves no team_member row
+# ---------------------------------------------------------------------------
+
+
+def test_rejected_join_leaves_no_membership(
+    client: TestClient, db: Session
+) -> None:
+    _, cookies_admin = _signup(client)
+    _team_id, code = _issue_invite(client, cookies_admin, team_name="NoOrphan")
+
+    # Expire the code.
+    invite = db.exec(select(TeamInvite).where(TeamInvite.code == code)).first()
+    assert invite is not None
+    invite.expires_at = get_datetime_utc() - timedelta(days=1)
+    db.add(invite)
+    db.commit()
+
+    joiner_id, cookies_joiner = _signup(client)
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_joiner
+    )
+    assert r.status_code == 410
+
+    # No team_member row for (joiner, invite.team_id).
+    membership = db.exec(
+        select(TeamMember)
+        .where(TeamMember.user_id == uuid.UUID(joiner_id))
+        .where(TeamMember.team_id == invite.team_id)
+    ).first()
+    assert membership is None
