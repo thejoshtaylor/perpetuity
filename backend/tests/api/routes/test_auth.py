@@ -391,3 +391,28 @@ def test_failed_login_does_not_leak_raw_email_in_logs(
     combined = "\n".join(rec.message for rec in caplog.records)
     # The raw local-part must not appear verbatim. Redaction uses first 3 chars + "***".
     assert "leaky_user@example.com" not in combined
+
+
+# ---------------------------------------------------------------------------
+# T04 cross-check: init_db must have bootstrapped a personal team for the
+# FIRST_SUPERUSER (proves T02's app/core/db.py wiring is in effect).
+# ---------------------------------------------------------------------------
+
+
+def test_superuser_bootstrap_has_personal_team(db: Session) -> None:
+    db.expire_all()
+    superuser = db.exec(
+        select(User).where(User.email == settings.FIRST_SUPERUSER)
+    ).one()
+    memberships = db.exec(
+        select(TeamMember).where(TeamMember.user_id == superuser.id)
+    ).all()
+    assert len(memberships) == 1, (
+        f"FIRST_SUPERUSER should have exactly one team membership, got {len(memberships)}"
+    )
+    membership = memberships[0]
+    assert membership.role == TeamRole.admin
+
+    team = db.get(Team, membership.team_id)
+    assert team is not None
+    assert team.is_personal is True
