@@ -272,6 +272,10 @@ def update_member_role(
             session.add(target)
             session.commit()
             session.refresh(target)
+            # `team` was loaded pre-commit and is now expired. Refresh so
+            # model_dump() below sees the persisted attributes rather than an
+            # empty __dict__ (SQLModel does not auto-refresh on model_dump).
+            session.refresh(team)
         except Exception:
             session.rollback()
             logger.warning(
