@@ -94,6 +94,39 @@ def create_user_with_personal_team(
     return user, team
 
 
+def create_team_with_admin(
+    *,
+    session: Session,
+    name: str,
+    creator_id: uuid.UUID,
+) -> Team:
+    """Create a non-personal Team with the given user as the admin member.
+
+    Parallel shape to `create_user_with_personal_team` but for the POST /teams
+    flow: slug is derived from name + 8-char suffix of a random uuid (not the
+    creator's id, so the same user can create multiple teams with the same
+    name). Slug IntegrityError bubbles to the caller to map to HTTP 409.
+    """
+    slug_stem = _slugify(name)
+    slug = f"{slug_stem}-{uuid.uuid4().hex[:8]}"
+    try:
+        team = Team(name=name, slug=slug, is_personal=False)
+        session.add(team)
+        session.flush()
+
+        membership = TeamMember(
+            user_id=creator_id, team_id=team.id, role=TeamRole.admin
+        )
+        session.add(membership)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    session.refresh(team)
+    return team
+
+
 def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
     user_data = user_in.model_dump(exclude_unset=True)
     extra_data = {}
