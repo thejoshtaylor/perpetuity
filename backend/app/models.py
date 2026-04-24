@@ -1,8 +1,9 @@
+import enum
 import uuid
 from datetime import datetime, timezone
 
 from pydantic import EmailStr
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -10,11 +11,21 @@ def get_datetime_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class UserRole(str, enum.Enum):
+    user = "user"
+    system_admin = "system_admin"
+
+
+class TeamRole(str, enum.Enum):
+    member = "member"
+    admin = "admin"
+
+
 # Shared properties
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
-    is_superuser: bool = False
+    role: UserRole = Field(default=UserRole.user)
     full_name: str | None = Field(default=None, max_length=255)
 
 
@@ -54,6 +65,9 @@ class User(UserBase, table=True):
         sa_type=DateTime(timezone=True),  # type: ignore
     )
     items: list["Item"] = Relationship(back_populates="owner", cascade_delete=True)
+    team_memberships: list["TeamMember"] = Relationship(
+        back_populates="user", cascade_delete=True
+    )
 
 
 # Properties to return via API, id is always required
@@ -65,6 +79,42 @@ class UserPublic(UserBase):
 class UsersPublic(SQLModel):
     data: list[UserPublic]
     count: int
+
+
+# Minimal Team stub — S02 will extend with real columns (name, slug, is_personal, ...)
+class Team(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    members: list["TeamMember"] = Relationship(
+        back_populates="team", cascade_delete=True
+    )
+
+
+# Join table — user ↔ team with per-membership role
+class TeamMember(SQLModel, table=True):
+    __tablename__ = "team_member"
+    __table_args__ = (
+        UniqueConstraint("user_id", "team_id", name="uq_team_member_user_team"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    role: TeamRole = Field(default=TeamRole.member)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+    user: User | None = Relationship(back_populates="team_memberships")
+    team: Team | None = Relationship(back_populates="members")
 
 
 # Shared properties
