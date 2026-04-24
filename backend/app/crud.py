@@ -1,10 +1,21 @@
+import re
 import uuid
 from typing import Any
 
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models import Item, ItemCreate, User, UserCreate, UserUpdate
+from app.models import (
+    Item,
+    ItemCreate,
+    Team,
+    TeamMember,
+    TeamRole,
+    User,
+    UserCreate,
+    UserUpdate,
+)
 
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
@@ -15,6 +26,72 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
     session.commit()
     session.refresh(db_obj)
     return db_obj
+
+
+_SLUG_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(name: str) -> str:
+    """Normalize a team name into a URL-safe stem (<=48 chars, a-z0-9-).
+
+    Fallback to 'user' if normalization yields an empty string. Callers must
+    append a uniqueness suffix — this helper does NOT guarantee uniqueness.
+    """
+    lowered = name.lower()
+    collapsed = _SLUG_NON_ALNUM.sub("-", lowered).strip("-")
+    truncated = collapsed[:48]
+    return truncated or "user"
+
+
+def create_user_with_personal_team(
+    *,
+    session: Session,
+    user_create: UserCreate,
+    raise_http_on_duplicate: bool = True,
+) -> tuple[User, Team]:
+    """Atomically create a User, their personal Team, and the admin TeamMember.
+
+    All three inserts share one transaction — if any step fails the whole
+    thing rolls back so we never leave an orphan user or orphan team.
+
+    Set raise_http_on_duplicate=False when called from non-HTTP contexts
+    (e.g. init_db seed) — duplicates raise ValueError instead of HTTPException.
+    """
+    existing = get_user_by_email(session=session, email=user_create.email)
+    if existing is not None:
+        if raise_http_on_duplicate:
+            raise HTTPException(
+                status_code=400,
+                detail="The user with this email already exists in the system",
+            )
+        raise ValueError("user already exists")
+
+    try:
+        user = User.model_validate(
+            user_create,
+            update={"hashed_password": get_password_hash(user_create.password)},
+        )
+        session.add(user)
+        session.flush()
+
+        stem = user.full_name or user.email.split("@", 1)[0]
+        slug = f"{_slugify(stem)}-{user.id.hex[:8]}"
+        team_name = (user.full_name or user.email.split("@", 1)[0])[:255]
+        team = Team(name=team_name, slug=slug, is_personal=True)
+        session.add(team)
+        session.flush()
+
+        membership = TeamMember(user_id=user.id, team_id=team.id, role=TeamRole.admin)
+        session.add(membership)
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    session.refresh(user)
+    session.refresh(team)
+    return user, team
 
 
 def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:

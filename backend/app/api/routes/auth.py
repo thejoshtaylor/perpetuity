@@ -45,24 +45,40 @@ def _issue_session(response: Response, user: User) -> None:
 
 @router.post("/signup", response_model=UserPublic)
 def signup(session: SessionDep, body: SignupBody, response: Response) -> Any:
-    """Create a new user with role=user, set session cookie, return UserPublic."""
-    existing = crud.get_user_by_email(session=session, email=body.email)
-    if existing:
-        logger.info("signup rejected: email already registered %s", _redact_email(body.email))
-        raise HTTPException(
-            status_code=400,
-            detail="The user with this email already exists in the system",
-        )
-
+    """Create a new user + personal team atomically, set session cookie, return UserPublic."""
     user_create = UserCreate(
         email=body.email,
         password=body.password,
         full_name=body.full_name,
         role=UserRole.user,
     )
-    user = crud.create_user(session=session, user_create=user_create)
+    try:
+        user, team = crud.create_user_with_personal_team(
+            session=session, user_create=user_create
+        )
+    except HTTPException:
+        logger.info(
+            "signup rejected: email already registered %s",
+            _redact_email(body.email),
+        )
+        raise
+    except Exception:
+        logger.warning(
+            "signup_tx_rollback %s stage=crud", _redact_email(body.email)
+        )
+        raise
+
     _issue_session(response, user)
     logger.info("signup ok %s", _redact_email(user.email))
+    logger.info(
+        "team_created team_id=%s is_personal=%s creator_id=%s",
+        team.id,
+        team.is_personal,
+        user.id,
+    )
+    logger.info(
+        "personal_team_bootstrapped user_id=%s team_id=%s", user.id, team.id
+    )
     return user
 
 

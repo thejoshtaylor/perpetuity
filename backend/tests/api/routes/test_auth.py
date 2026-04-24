@@ -7,13 +7,14 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import jwt
+import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app import crud
 from app.core.config import settings
 from app.core.security import ALGORITHM
-from app.models import User, UserCreate
+from app.models import Team, TeamMember, TeamRole, User, UserCreate
 from tests.utils.utils import random_email, random_lower_string
 
 SIGNUP_URL = f"{settings.API_V1_STR}/auth/signup"
@@ -73,6 +74,132 @@ def test_signup_duplicate_email_returns_400(client: TestClient, db: Session) -> 
     r = client.post(SIGNUP_URL, json={"email": email, "password": password})
     assert r.status_code == 400
     assert "already exists" in r.json()["detail"]
+
+
+def test_signup_creates_personal_team(client: TestClient, db: Session) -> None:
+    """Happy path: signup creates a personal team with the user as admin member."""
+    email = random_email()
+    password = random_lower_string()
+    client.cookies.clear()
+
+    r = client.post(SIGNUP_URL, json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    user_id = r.json()["id"]
+
+    # User row exists.
+    user = db.get(User, uuid.UUID(user_id))
+    assert user is not None
+    # Refresh — init_db ran in the same session, so objects may be stale.
+    db.expire_all()
+
+    memberships = db.exec(
+        select(TeamMember).where(TeamMember.user_id == uuid.UUID(user_id))
+    ).all()
+    assert len(memberships) == 1
+    membership = memberships[0]
+    assert membership.role == TeamRole.admin
+
+    team = db.get(Team, membership.team_id)
+    assert team is not None
+    assert team.is_personal is True
+    # slug embeds an 8-char suffix of the user hex id for uniqueness.
+    assert team.slug.endswith(uuid.UUID(user_id).hex[:8])
+    assert len(team.slug) <= 64
+    assert len(team.name) > 0
+
+
+def test_signup_full_name_too_long_returns_422(client: TestClient) -> None:
+    """Pydantic UserCreate caps full_name at 255; 256 chars → 422 before crud runs."""
+    client.cookies.clear()
+    r = client.post(
+        SIGNUP_URL,
+        json={
+            "email": random_email(),
+            "password": random_lower_string(),
+            "full_name": "a" * 256,
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_signup_rolls_back_on_mid_transaction_failure(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If create_user_with_personal_team raises mid-tx, neither user nor team persists."""
+    from app.api.routes import auth as auth_route
+    from app.main import app
+
+    email = random_email()
+    password = random_lower_string()
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("simulated mid-tx failure")
+
+    # Patch the symbol the route imported (crud.create_user_with_personal_team).
+    monkeypatch.setattr(
+        auth_route.crud, "create_user_with_personal_team", _boom
+    )
+
+    # Use a local client with raise_server_exceptions=False so the 500 actually
+    # comes back as a response (default TestClient re-raises server exceptions).
+    with TestClient(app, raise_server_exceptions=False) as local_client:
+        local_client.cookies.clear()
+        r = local_client.post(SIGNUP_URL, json={"email": email, "password": password})
+    assert r.status_code == 500, r.text
+
+    # No user row persisted.
+    assert crud.get_user_by_email(session=db, email=email) is None
+    # No team row whose name matches the local-part of the email persisted
+    # (personal team naming falls back to email local-part when no full_name).
+    local_part = email.split("@", 1)[0]
+    teams = db.exec(select(Team).where(Team.name == local_part)).all()
+    assert teams == []
+
+
+def test_signup_identical_full_name_produces_distinct_slugs(
+    client: TestClient, db: Session
+) -> None:
+    """Two users with the same full_name both succeed; slugs differ via UUID suffix."""
+    shared_name = "Jane Q Public"
+    client.cookies.clear()
+
+    r1 = client.post(
+        SIGNUP_URL,
+        json={
+            "email": random_email(),
+            "password": random_lower_string(),
+            "full_name": shared_name,
+        },
+    )
+    assert r1.status_code == 200, r1.text
+    user1_id = r1.json()["id"]
+
+    client.cookies.clear()
+    r2 = client.post(
+        SIGNUP_URL,
+        json={
+            "email": random_email(),
+            "password": random_lower_string(),
+            "full_name": shared_name,
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    user2_id = r2.json()["id"]
+
+    db.expire_all()
+    m1 = db.exec(
+        select(TeamMember).where(TeamMember.user_id == uuid.UUID(user1_id))
+    ).one()
+    m2 = db.exec(
+        select(TeamMember).where(TeamMember.user_id == uuid.UUID(user2_id))
+    ).one()
+    team1 = db.get(Team, m1.team_id)
+    team2 = db.get(Team, m2.team_id)
+    assert team1 is not None and team2 is not None
+    assert team1.slug != team2.slug
+    # Same slugified stem, differing 8-char suffix from distinct UUIDs.
+    assert team1.slug.startswith("jane-q-public-")
+    assert team2.slug.startswith("jane-q-public-")
 
 
 # ---------------------------------------------------------------------------

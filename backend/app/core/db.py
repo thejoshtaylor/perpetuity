@@ -30,4 +30,8 @@ def init_db(session: Session) -> None:
             password=settings.FIRST_SUPERUSER_PASSWORD,
             role=UserRole.system_admin,
         )
-        user = crud.create_user(session=session, user_create=user_in)
+        user, _ = crud.create_user_with_personal_team(
+            session=session,
+            user_create=user_in,
+            raise_http_on_duplicate=False,
+        )
