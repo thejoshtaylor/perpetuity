@@ -142,6 +142,57 @@ class TeamMember(SQLModel, table=True):
     team: Team | None = Relationship(back_populates="members")
 
 
+# Invite: bearer-token invitation to join a team. Code is a urlsafe string
+# (32 chars ≈ 190 bits entropy). One-shot: used_at + used_by are stamped on
+# acceptance; a future agent can audit issuance/acceptance via this row.
+class TeamInvite(SQLModel, table=True):
+    __tablename__ = "team_invite"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(max_length=64, unique=True, index=True)
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    created_by: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    expires_at: datetime = Field(sa_type=DateTime(timezone=True))  # type: ignore
+    used_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True), nullable=True  # type: ignore
+    )
+    used_by: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class TeamInvitePublic(SQLModel):
+    id: uuid.UUID
+    code: str
+    team_id: uuid.UUID
+    created_by: uuid.UUID
+    expires_at: datetime
+    used_at: datetime | None = None
+    used_by: uuid.UUID | None = None
+    created_at: datetime | None = None
+
+
+class InviteIssued(SQLModel):
+    code: str
+    url: str
+    expires_at: datetime
+
+
+class MemberRoleUpdate(SQLModel):
+    role: TeamRole
+
+
 # Shared properties
 class ItemBase(SQLModel):
     title: str = Field(min_length=1, max_length=255)
