@@ -11,6 +11,23 @@ import {
 import { handleError } from "@/utils"
 import useCustomToast from "./useCustomToast"
 
+// Sanitize the `?next=` redirect target so a hostile invite/login URL cannot
+// bounce the user to an external origin (open-redirect). Only same-origin
+// relative paths starting with a single slash followed by a non-slash char
+// are honored — anything else falls back to "/".
+export function sanitizeNextPath(raw: string | null): string {
+  if (!raw) return "/"
+  // Reject protocol-relative ("//evil.com"), backslash variants, and absolute URLs.
+  if (!/^\/[^/\\]/.test(raw)) return "/"
+  return raw
+}
+
+function readNextFromLocation(): string {
+  if (typeof window === "undefined") return "/"
+  const next = new URLSearchParams(window.location.search).get("next")
+  return sanitizeNextPath(next)
+}
+
 const useAuth = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -29,7 +46,8 @@ const useAuth = () => {
     onSuccess: () => {
       // Backend signup issues the session cookie — invalidate to refetch the new user.
       queryClient.invalidateQueries({ queryKey: ["currentUser"] })
-      navigate({ to: "/" })
+      const next = readNextFromLocation()
+      navigate({ to: next })
     },
     onError: handleError.bind(showErrorToast),
   })
@@ -38,7 +56,8 @@ const useAuth = () => {
     mutationFn: (data: LoginBody) => AuthService.login({ requestBody: data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["currentUser"] })
-      navigate({ to: "/" })
+      const next = readNextFromLocation()
+      navigate({ to: next })
     },
     onError: handleError.bind(showErrorToast),
   })

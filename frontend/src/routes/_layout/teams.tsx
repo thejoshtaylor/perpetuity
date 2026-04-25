@@ -4,8 +4,8 @@ import { Users } from "lucide-react"
 import { Suspense } from "react"
 
 import { TeamsService, type TeamWithRole } from "@/client"
+import CreateTeamDialog from "@/components/Teams/CreateTeamDialog"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -90,9 +90,7 @@ function TeamsEmptyState() {
       <p className="text-muted-foreground max-w-sm">
         Create a team to collaborate with others.
       </p>
-      <Button data-testid="create-team-button" disabled>
-        Create Team
-      </Button>
+      <CreateTeamDialog />
     </Card>
   )
 }
@@ -144,6 +142,9 @@ function Teams() {
         <p className="text-muted-foreground">
           Welcome back, nice to see you again!!!
         </p>
+      </div>
+      <div className="flex justify-end">
+        <CreateTeamDialog />
       </div>
       <TeamsList />
     </div>

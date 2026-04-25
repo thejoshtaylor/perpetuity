@@ -15,6 +15,7 @@ import { Route as RecoverPasswordRouteImport } from './routes/recover-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
+import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as LayoutTeamsRouteImport } from './routes/_layout/teams'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
@@ -49,6 +50,11 @@ const LayoutIndexRoute = LayoutIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => LayoutRoute,
+} as any)
+const InviteCodeRoute = InviteCodeRouteImport.update({
+  id: '/invite/$code',
+  path: '/invite/$code',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const LayoutTeamsRoute = LayoutTeamsRouteImport.update({
   id: '/teams',
@@ -86,6 +92,7 @@ export interface FileRoutesByFullPath {
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRouteWithChildren
+  '/invite/$code': typeof InviteCodeRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
 }
 export interface FileRoutesByTo {
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRouteWithChildren
+  '/invite/$code': typeof InviteCodeRoute
   '/': typeof LayoutIndexRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
 }
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/teams': typeof LayoutTeamsRouteWithChildren
+  '/invite/$code': typeof InviteCodeRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/teams/$teamId': typeof LayoutTeamsTeamIdRoute
 }
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/items'
     | '/settings'
     | '/teams'
+    | '/invite/$code'
     | '/teams/$teamId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/items'
     | '/settings'
     | '/teams'
+    | '/invite/$code'
     | '/'
     | '/teams/$teamId'
   id:
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/_layout/items'
     | '/_layout/settings'
     | '/_layout/teams'
+    | '/invite/$code'
     | '/_layout/'
     | '/_layout/teams/$teamId'
   fileRoutesById: FileRoutesById
@@ -160,6 +172,7 @@ export interface RootRouteChildren {
   RecoverPasswordRoute: typeof RecoverPasswordRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
+  InviteCodeRoute: typeof InviteCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,6 +218,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof LayoutIndexRouteImport
       parentRoute: typeof LayoutRoute
+    }
+    '/invite/$code': {
+      id: '/invite/$code'
+      path: '/invite/$code'
+      fullPath: '/invite/$code'
+      preLoaderRoute: typeof InviteCodeRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_layout/teams': {
       id: '/_layout/teams'
@@ -281,6 +301,7 @@ const rootRouteChildren: RootRouteChildren = {
   RecoverPasswordRoute: RecoverPasswordRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
+  InviteCodeRoute: InviteCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
