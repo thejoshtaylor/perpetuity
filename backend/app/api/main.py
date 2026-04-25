@@ -6,6 +6,7 @@ from app.api.routes import (
     items,
     login,
     private,
+    sessions,
     teams,
     users,
     utils,
@@ -22,6 +23,7 @@ api_router.include_router(admin.router)
 api_router.include_router(utils.router)
 api_router.include_router(items.router)
 api_router.include_router(ws.router)
+api_router.include_router(sessions.router)
 
 
 if settings.ENVIRONMENT == "local":

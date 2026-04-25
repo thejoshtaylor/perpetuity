@@ -148,6 +148,28 @@ async def list_sessions(
     return await registry.list_sessions(str(user_id), str(team_id))
 
 
+@router.get("/by-id/{session_id}", response_model=dict)
+async def get_session_by_id(session_id: uuid.UUID) -> dict[str, Any]:
+    """Look up a single session record by id.
+
+    Added in T05 because the backend's WS bridge and DELETE handler need an
+    O(1) ownership check (record.user_id == caller.id). The list endpoint
+    requires (user_id, team_id) which the backend doesn't know yet at the
+    point it's enforcing ownership — adding by-id keeps the orchestrator
+    responsible for the storage shape and the backend responsible for the
+    policy decision.
+
+    Returns 404 if the session does not exist. Backend translates that 404
+    into a session-shaped 1008/404 (no enumeration) — the orchestrator
+    itself does NOT enforce per-user policy here (D016).
+    """
+    registry = get_registry()
+    record = await registry.get_session(str(session_id))
+    if record is None:
+        raise HTTPException(status_code=404, detail="session_not_found")
+    return record
+
+
 @router.delete("/{session_id}", status_code=status.HTTP_200_OK)
 async def delete_session(session_id: uuid.UUID, request: Request) -> dict[str, Any]:
     """Kill the named tmux session and drop the Redis record.

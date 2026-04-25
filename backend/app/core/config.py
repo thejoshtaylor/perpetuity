@@ -95,6 +95,15 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # Backend ↔ orchestrator (M002 / D016 / MEM096). The shared secret is
+    # presented on every HTTP request as `X-Orchestrator-Key` and on every WS
+    # upgrade as `?key=` query string. Defaults are placeholders so the
+    # backend test suite can run without compose env wiring; production must
+    # override (`_check_default_secret` policy below would break the dev
+    # workflow if applied here, since tests boot Settings without env).
+    ORCHESTRATOR_BASE_URL: str = "http://orchestrator:8001"
+    ORCHESTRATOR_API_KEY: str = "changethis"
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (

@@ -10,6 +10,12 @@ from sqlmodel import select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
+from app.api.team_access import (
+    assert_caller_is_team_admin as _assert_caller_is_team_admin,
+)
+from app.api.team_access import (
+    assert_caller_is_team_member as _assert_caller_is_team_member,
+)
 from app.core.config import settings
 from app.crud import InviteRejectReason
 from app.models import (
@@ -45,55 +51,6 @@ class TeamsPublic(dict):
     Using a plain dict is sufficient; FastAPI serializes the declared
     response_model via the actual shape below without needing a SQLModel.
     """
-
-
-def _assert_caller_is_team_admin(
-    session: SessionDep, team_id: uuid.UUID, caller_id: uuid.UUID
-) -> Team:
-    """Return the Team when caller is an admin on it, else raise 404/403.
-
-    Collapses the shared "team exists + caller is admin" precondition used
-    by every mutation endpoint below — invite, PATCH role, DELETE member.
-    """
-    team = session.get(Team, team_id)
-    if team is None:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    membership = session.exec(
-        select(TeamMember)
-        .where(TeamMember.team_id == team_id)
-        .where(TeamMember.user_id == caller_id)
-    ).first()
-    if membership is None or membership.role != TeamRole.admin:
-        raise HTTPException(
-            status_code=403, detail="Only team admins can invite"
-        )
-    return team
-
-
-def _assert_caller_is_team_member(
-    session: SessionDep, team_id: uuid.UUID, caller_id: uuid.UUID
-) -> Team:
-    """Return the Team when caller is a member (any role) on it, else 404/403.
-
-    Mirrors `_assert_caller_is_team_admin` but does not require the admin role —
-    used by read-only endpoints like GET /teams/{id}/members where any member
-    is permitted to inspect the roster.
-    """
-    team = session.get(Team, team_id)
-    if team is None:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    membership = session.exec(
-        select(TeamMember)
-        .where(TeamMember.team_id == team_id)
-        .where(TeamMember.user_id == caller_id)
-    ).first()
-    if membership is None:
-        raise HTTPException(
-            status_code=403, detail="Not a member of this team"
-        )
-    return team
 
 
 def _team_admin_count(session: SessionDep, team_id: uuid.UUID) -> int:
