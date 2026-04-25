@@ -229,6 +229,20 @@ class SystemSettingPut(SQLModel):
     value: Any
 
 
+class SystemSettingShrinkWarning(SQLModel):
+    user_id: uuid.UUID
+    team_id: uuid.UUID
+    size_gb: int
+    usage_bytes: int | None = None
+
+
+class SystemSettingPutResponse(SQLModel):
+    key: str
+    value: Any
+    updated_at: datetime | None = None
+    warnings: list[SystemSettingShrinkWarning] = []
+
+
 class TeamInvitePublic(SQLModel):
     id: uuid.UUID
     code: str

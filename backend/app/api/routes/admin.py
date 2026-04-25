@@ -11,12 +11,15 @@ endpoint is one-directional; demotion is future work.
 
 Logs are UUID-only (matches S03 redaction posture) — no email or team name.
 """
+import json
 import logging
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import col, func, select
+from sqlalchemy import text
+from sqlmodel import Session, col, func, select
 
 from app.api.deps import (
     CurrentUser,
@@ -24,6 +27,11 @@ from app.api.deps import (
     get_current_active_superuser,
 )
 from app.models import (
+    SystemSetting,
+    SystemSettingPublic,
+    SystemSettingPut,
+    SystemSettingPutResponse,
+    SystemSettingShrinkWarning,
     Team,
     TeamMember,
     TeamMemberPublic,
@@ -32,6 +40,7 @@ from app.models import (
     User,
     UserPublic,
     UserRole,
+    WorkspaceVolume,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,3 +180,192 @@ def promote_system_admin(
         str(already_admin).lower(),
     )
     return target
+
+
+# ---------------------------------------------------------------------------
+# System settings — generic key/value store backing admin-tunable globals.
+#
+# Reject-by-default: PUTs to keys not in `_VALIDATORS` return 422. This closes
+# the foot-gun where a typo in the key would silently add a row that nothing
+# reads. New keys must be registered here alongside their validator.
+#
+# Logging discipline: never log the raw value — future settings may carry
+# secrets (e.g. SMTP_PASSWORD); log presence/absence and the key name only.
+# ---------------------------------------------------------------------------
+
+
+WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
+
+
+def _validate_workspace_volume_size_gb(value: Any) -> None:
+    """Mirror the orchestrator's volume_store range (1..256 GiB).
+
+    bool is a subclass of int in Python — reject it explicitly so a JSON
+    `true` doesn't silently coerce to 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": WORKSPACE_VOLUME_SIZE_GB_KEY,
+                "reason": "must be int in 1..256",
+            },
+        )
+    if not (1 <= value <= 256):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": WORKSPACE_VOLUME_SIZE_GB_KEY,
+                "reason": "must be int in 1..256",
+            },
+        )
+
+
+_VALIDATORS: dict[str, Callable[[Any], None]] = {
+    WORKSPACE_VOLUME_SIZE_GB_KEY: _validate_workspace_volume_size_gb,
+}
+
+
+def _compute_workspace_size_warnings(
+    session: Session, new_value: int
+) -> list[SystemSettingShrinkWarning]:
+    """Return one warning row per existing volume whose size_gb > new_value.
+
+    usage_bytes is reported as None in this slice — the backend container
+    does not mount the workspace_volume host bind, so on-disk usage is not
+    reachable. S04 will add a backend→orchestrator usage lookup; the schema
+    is forward-compatible.
+    """
+    statement = (
+        select(WorkspaceVolume)
+        .where(WorkspaceVolume.size_gb > new_value)
+        .order_by(col(WorkspaceVolume.created_at))
+    )
+    rows = session.exec(statement).all()
+    return [
+        SystemSettingShrinkWarning(
+            user_id=row.user_id,
+            team_id=row.team_id,
+            size_gb=row.size_gb,
+            usage_bytes=None,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/settings")
+def list_system_settings(
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """List all system settings, ordered by key.
+
+    Returns `{data: [SystemSettingPublic, ...], count}`. The full set is
+    expected to stay tiny (one row per registered key), so no pagination.
+    """
+    statement = select(SystemSetting).order_by(col(SystemSetting.key))
+    rows = session.exec(statement).all()
+    data = [
+        SystemSettingPublic.model_validate(row, from_attributes=True)
+        for row in rows
+    ]
+    logger.info(
+        "system_settings_listed actor_id=%s count=%s",
+        current_user.id,
+        len(data),
+    )
+    return {"data": data, "count": len(data)}
+
+
+@router.get("/settings/{key}", response_model=SystemSettingPublic)
+def get_system_setting(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    key: str,
+) -> Any:
+    """Return a single system setting or 404."""
+    row = session.get(SystemSetting, key)
+    if row is None:
+        raise HTTPException(status_code=404, detail="setting_not_found")
+    logger.info(
+        "system_setting_read actor_id=%s key=%s",
+        current_user.id,
+        key,
+    )
+    return row
+
+
+@router.put("/settings/{key}", response_model=SystemSettingPutResponse)
+def put_system_setting(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    key: str,
+    body: SystemSettingPut,
+) -> Any:
+    """Validate, UPSERT, and return the setting plus any shrink warnings.
+
+    Reject-by-default on unknown keys. Per-key validators raise 422 with
+    `{detail: 'invalid_value_for_key', key, reason}` on bad input.
+
+    For `workspace_volume_size_gb`, also computes the partial-apply shrink
+    warnings (D015): rows with size_gb > new_value are reported but not
+    rewritten. New volumes pick up the new default; existing rows keep their
+    historical cap (cap divergence allowed).
+    """
+    validator = _VALIDATORS.get(key)
+    if validator is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"detail": "unknown_setting_key", "key": key},
+        )
+    validator(body.value)
+
+    previous = session.get(SystemSetting, key)
+    previous_value_present = previous is not None
+
+    # UPSERT via Postgres ON CONFLICT. Use raw SQL because SQLAlchemy's
+    # JSONB binding handles arbitrary JSON-serializable Python values, and
+    # this is the canonical pattern for INSERT...ON CONFLICT in Postgres.
+    upsert = text(
+        """
+        INSERT INTO system_settings (key, value, updated_at)
+        VALUES (:key, CAST(:value AS JSONB), NOW())
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value, updated_at = NOW()
+        RETURNING key, value, updated_at
+        """
+    )
+    result = session.execute(
+        upsert, {"key": key, "value": json.dumps(body.value)}
+    )
+    row = result.one()
+    session.commit()
+
+    warnings: list[SystemSettingShrinkWarning] = []
+    if key == WORKSPACE_VOLUME_SIZE_GB_KEY:
+        warnings = _compute_workspace_size_warnings(session, body.value)
+
+    logger.info(
+        "system_setting_updated actor_id=%s key=%s previous_value_present=%s",
+        current_user.id,
+        key,
+        str(previous_value_present).lower(),
+    )
+    if warnings:
+        logger.info(
+            "system_setting_shrink_warnings_emitted key=%s actor_id=%s affected=%s",
+            key,
+            current_user.id,
+            len(warnings),
+        )
+
+    return SystemSettingPutResponse(
+        key=row.key,
+        value=row.value,
+        updated_at=row.updated_at,
+        warnings=warnings,
+    )
