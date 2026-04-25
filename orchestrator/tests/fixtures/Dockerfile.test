@@ -1,0 +1,20 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Smaller workspace image used by integration tests. Drops nodejs (and the
+# NodeSource setup that goes with it) to keep image-pull/build cost bounded
+# in CI per the M002 CONTEXT testing-cost note. Behavior under test in S01 is
+# tmux + bash only; T03/T04 don't exercise node.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        python3 \
+        tmux \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["sleep", "infinity"]

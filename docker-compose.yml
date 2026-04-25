@@ -29,6 +29,58 @@ services:
     environment:
       - ADMINER_DESIGN=pepa-linha-dark
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+    # Internal compose network only — never publish a host port. Password
+    # is the shared secret pattern (M002 CONTEXT: "Redis password: internal-
+    # network only; never exposed externally").
+    networks:
+      - default
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD?Variable not set}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  orchestrator:
+    image: '${DOCKER_IMAGE_ORCHESTRATOR-orchestrator}:${TAG-latest}'
+    restart: always
+    networks:
+      - default
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # D005: orchestrator is the ONLY service that mounts the Docker socket.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # D014: required for losetup/mount in S02. Added in T01 because changing
+    # compose privilege boundaries later is more disruptive than once.
+    cap_add:
+      - SYS_ADMIN
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD?Variable not set}
+      - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
+      - ORCHESTRATOR_API_KEY_PREVIOUS=${ORCHESTRATOR_API_KEY_PREVIOUS-}
+      - WORKSPACE_IMAGE=${WORKSPACE_IMAGE-perpetuity/workspace:latest}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   prestart:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
     build:
@@ -73,6 +125,8 @@ services:
         restart: true
       prestart:
         condition: service_completed_successfully
+      orchestrator:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -93,6 +147,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN}
+      - ORCHESTRATOR_BASE_URL=${ORCHESTRATOR_BASE_URL-http://orchestrator:8001}
+      - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
