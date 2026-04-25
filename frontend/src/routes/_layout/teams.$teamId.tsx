@@ -2,8 +2,9 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Suspense } from "react"
 
-import { TeamsService, type TeamWithRole } from "@/client"
+import { TeamsService, type TeamWithRole, UsersService } from "@/client"
 import InviteButton from "@/components/Teams/InviteButton"
+import MembersList, { MembersListPending } from "@/components/Teams/MembersList"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -35,6 +36,12 @@ export const Route = createFileRoute("/_layout/teams/$teamId")({
 function TeamDetailContent() {
   const { teamId } = Route.useParams()
   const { data } = useSuspenseQuery(getTeamsQueryOptions())
+  // _layout's beforeLoad already ensured ["currentUser"] is populated, so this
+  // hits the cache. We re-declare the queryFn for type safety / refetch parity.
+  const { data: currentUser } = useSuspenseQuery({
+    queryKey: ["currentUser"] as const,
+    queryFn: UsersService.readUserMe,
+  })
   const team = data.data.find((t) => t.id === teamId)
 
   if (!team) {
@@ -54,7 +61,9 @@ function TeamDetailContent() {
     )
   }
 
-  const canInvite = team.role === "admin" && !team.is_personal
+  const callerIsAdmin = team.role === "admin"
+  const canInvite = callerIsAdmin && !team.is_personal
+  const showMemberControls = callerIsAdmin && !team.is_personal
 
   return (
     <div className="flex flex-col gap-4" data-testid="team-detail">
@@ -91,9 +100,20 @@ function TeamDetailContent() {
         </section>
       )}
 
-      <p className="text-muted-foreground text-sm">
-        Members list and promote/demote/remove controls land in T04.
-      </p>
+      <section
+        className="flex flex-col gap-2"
+        data-testid="members-section"
+        aria-label="Team members"
+      >
+        <h2 className="text-sm font-medium">Members</h2>
+        <Suspense fallback={<MembersListPending />}>
+          <MembersList
+            teamId={team.id}
+            callerId={currentUser.id}
+            callerIsAdmin={showMemberControls}
+          />
+        </Suspense>
+      </section>
     </div>
   )
 }

@@ -68,6 +68,18 @@ export type TeamCreate = {
     name: string;
 };
 
+export type TeamMemberPublic = {
+    user_id: string;
+    email: string;
+    full_name?: (string | null);
+    role: TeamRole;
+};
+
+export type TeamMembersPublic = {
+    data: Array<TeamMemberPublic>;
+    count: number;
+};
+
 export type TeamRole = 'member' | 'admin';
 
 export type TeamWithRole = {
@@ -210,6 +222,12 @@ export type TeamsCreateTeamData = {
 };
 
 export type TeamsCreateTeamResponse = (TeamWithRole);
+
+export type TeamsReadTeamMembersData = {
+    teamId: string;
+};
+
+export type TeamsReadTeamMembersResponse = (TeamMembersPublic);
 
 export type TeamsInviteToTeamData = {
     teamId: string;

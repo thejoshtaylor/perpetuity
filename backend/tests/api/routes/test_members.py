@@ -212,6 +212,54 @@ def test_delete_last_admin_returns_400(client: TestClient) -> None:
     assert r.json()["detail"] == "Cannot remove the last admin"
 
 
+# ---------------------------------------------------------------------------
+# GET /teams/{id}/members
+# ---------------------------------------------------------------------------
+
+
+def test_get_team_members_lists_admin_and_member(client: TestClient) -> None:
+    """Admin sees both their own row and the invited member's row."""
+    a_id, cookies_a, b_id, _cookies_b, team_id = _admin_with_member(
+        client, "RosterHappy"
+    )
+
+    r = client.get(
+        f"{settings.API_V1_STR}/teams/{team_id}/members", cookies=cookies_a
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["count"] == 2
+    by_id = {row["user_id"]: row for row in body["data"]}
+    assert by_id[a_id]["role"] == "admin"
+    assert by_id[b_id]["role"] == "member"
+    # Each row carries the contact fields the FE renders.
+    assert "email" in by_id[a_id]
+    assert "full_name" in by_id[a_id]
+
+
+def test_get_team_members_as_non_member_returns_403(client: TestClient) -> None:
+    """An unrelated user cannot read another team's roster."""
+    _a_id, cookies_a = _signup(client)
+    team_id = _create_team(client, cookies_a, "PrivateRoster")
+
+    _outsider_id, cookies_out = _signup(client)
+    r = client.get(
+        f"{settings.API_V1_STR}/teams/{team_id}/members", cookies=cookies_out
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Not a member of this team"
+
+
+def test_get_team_members_unknown_team_returns_404(client: TestClient) -> None:
+    """Unknown team ID → 404 (does not leak existence to non-members)."""
+    _a_id, cookies_a = _signup(client)
+    bogus = uuid.uuid4()
+    r = client.get(
+        f"{settings.API_V1_STR}/teams/{bogus}/members", cookies=cookies_a
+    )
+    assert r.status_code == 404
+
+
 def test_delete_on_personal_team_returns_400(client: TestClient) -> None:
     """Cannot remove anyone from a personal team — refused at the team layer."""
     a_id, cookies_a = _signup(client)

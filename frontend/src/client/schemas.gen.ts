@@ -290,6 +290,57 @@ export const TeamCreateSchema = {
     title: 'TeamCreate'
 } as const;
 
+export const TeamMemberPublicSchema = {
+    properties: {
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        email: {
+            type: 'string',
+            format: 'email',
+            title: 'Email'
+        },
+        full_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Full Name'
+        },
+        role: {
+            '$ref': '#/components/schemas/TeamRole'
+        }
+    },
+    type: 'object',
+    required: ['user_id', 'email', 'role'],
+    title: 'TeamMemberPublic'
+} as const;
+
+export const TeamMembersPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/TeamMemberPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'TeamMembersPublic'
+} as const;
+
 export const TeamRoleSchema = {
     type: 'string',
     enum: ['member', 'admin'],

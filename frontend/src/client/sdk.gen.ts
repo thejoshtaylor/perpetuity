@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class AuthService {
     /**
@@ -288,6 +288,31 @@ export class TeamsService {
             url: '/api/v1/teams/',
             body: data.requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Team Members
+     * Return the roster of a team the caller is a member of.
+     *
+     * - 404 if team missing.
+     * - 403 if caller is not a member of the team.
+     * - 200 `{data: [{user_id, email, full_name, role}, ...], count: int}`.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns TeamMembersPublic Successful Response
+     * @throws ApiError
+     */
+    public static readTeamMembers(data: TeamsReadTeamMembersData): CancelablePromise<TeamsReadTeamMembersResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/members',
+            path: {
+                team_id: data.teamId
+            },
             errors: {
                 422: 'Validation Error'
             }

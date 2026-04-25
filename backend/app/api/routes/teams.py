@@ -18,8 +18,11 @@ from app.models import (
     Team,
     TeamCreate,
     TeamMember,
+    TeamMemberPublic,
+    TeamMembersPublic,
     TeamRole,
     TeamWithRole,
+    User,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,6 +71,31 @@ def _assert_caller_is_team_admin(
     return team
 
 
+def _assert_caller_is_team_member(
+    session: SessionDep, team_id: uuid.UUID, caller_id: uuid.UUID
+) -> Team:
+    """Return the Team when caller is a member (any role) on it, else 404/403.
+
+    Mirrors `_assert_caller_is_team_admin` but does not require the admin role —
+    used by read-only endpoints like GET /teams/{id}/members where any member
+    is permitted to inspect the roster.
+    """
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    membership = session.exec(
+        select(TeamMember)
+        .where(TeamMember.team_id == team_id)
+        .where(TeamMember.user_id == caller_id)
+    ).first()
+    if membership is None:
+        raise HTTPException(
+            status_code=403, detail="Not a member of this team"
+        )
+    return team
+
+
 def _team_admin_count(session: SessionDep, team_id: uuid.UUID) -> int:
     """Count admins on a team via a single aggregate query (no row fetch)."""
     return session.exec(
@@ -94,6 +122,43 @@ def read_teams(session: SessionDep, current_user: CurrentUser) -> dict[str, Any]
     rows = session.exec(statement).all()
     data = [TeamWithRole(**team.model_dump(), role=role) for team, role in rows]
     return {"data": data, "count": len(data)}
+
+
+@router.get("/{team_id}/members", response_model=TeamMembersPublic)
+def read_team_members(
+    *, session: SessionDep, current_user: CurrentUser, team_id: uuid.UUID
+) -> Any:
+    """Return the roster of a team the caller is a member of.
+
+    - 404 if team missing.
+    - 403 if caller is not a member of the team.
+    - 200 `{data: [{user_id, email, full_name, role}, ...], count: int}`.
+    """
+    _assert_caller_is_team_member(session, team_id, current_user.id)
+
+    statement = (
+        select(User, TeamMember.role)
+        .join(TeamMember, TeamMember.user_id == User.id)
+        .where(TeamMember.team_id == team_id)
+        .order_by(User.email)  # type: ignore[attr-defined]
+    )
+    rows = session.exec(statement).all()
+    data = [
+        TeamMemberPublic(
+            user_id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=role,
+        )
+        for user, role in rows
+    ]
+    logger.info(
+        "members_listed team_id=%s caller_id=%s count=%s",
+        team_id,
+        current_user.id,
+        len(data),
+    )
+    return TeamMembersPublic(data=data, count=len(data))
 
 
 @router.post("/", response_model=TeamWithRole)

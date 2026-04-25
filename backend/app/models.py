@@ -193,6 +193,18 @@ class MemberRoleUpdate(SQLModel):
     role: TeamRole
 
 
+class TeamMemberPublic(SQLModel):
+    user_id: uuid.UUID
+    email: EmailStr
+    full_name: str | None = None
+    role: TeamRole
+
+
+class TeamMembersPublic(SQLModel):
+    data: list[TeamMemberPublic]
+    count: int
+
+
 # Shared properties
 class ItemBase(SQLModel):
     title: str = Field(min_length=1, max_length=255)
