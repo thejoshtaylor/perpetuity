@@ -32,6 +32,8 @@ from orchestrator.errors import (
     RedisUnavailable,
 )
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
+from orchestrator.routes_sessions import router as sessions_router
+from orchestrator.sessions import VolumeMountFailed
 
 logger = logging.getLogger("orchestrator")
 logging.basicConfig(
@@ -192,6 +194,20 @@ async def _docker_unavailable_handler(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "docker_unavailable", "reason": str(exc)},
     )
+
+
+@app.exception_handler(VolumeMountFailed)
+async def _volume_mount_failed_handler(
+    _request: Request, exc: VolumeMountFailed
+) -> JSONResponse:
+    # T03 placeholder shape; S02 owns the rich loopback-volume failure space.
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "volume_mount_failed", "reason": str(exc)},
+    )
+
+
+app.include_router(sessions_router)
 
 
 @app.get("/v1/health")

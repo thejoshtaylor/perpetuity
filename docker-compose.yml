@@ -59,8 +59,13 @@ services:
       redis:
         condition: service_healthy
     # D005: orchestrator is the ONLY service that mounts the Docker socket.
+    # T03: also bind-mount the workspace root 1:1 so the orchestrator can
+    # `mkdir -p /var/lib/perpetuity/workspaces/<u>/<t>/` and pass the same
+    # host path to workspace containers as a bind-mount source. S02 swaps
+    # this for loopback-ext4 volumes mounted at the same path.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/perpetuity/workspaces:/var/lib/perpetuity/workspaces
     # D014: required for losetup/mount in S02. Added in T01 because changing
     # compose privilege boundaries later is more disruptive than once.
     cap_add:
