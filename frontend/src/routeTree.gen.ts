@@ -20,7 +20,7 @@ import { Route as LayoutTeamsRouteImport } from './routes/_layout/teams'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
-import { Route as LayoutTeamsTeamIdRouteImport } from './routes/_layout/teams.$teamId'
+import { Route as LayoutTeamsTeamIdRouteImport } from './routes/_layout/teams_.$teamId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -77,9 +77,9 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutTeamsTeamIdRoute = LayoutTeamsTeamIdRouteImport.update({
-  id: '/$teamId',
-  path: '/$teamId',
-  getParentRoute: () => LayoutTeamsRoute,
+  id: '/teams_/$teamId',
+  path: '/teams/$teamId',
+  getParentRoute: () => LayoutRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -91,7 +91,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof LayoutAdminRoute
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
-  '/teams': typeof LayoutTeamsRouteWithChildren
+  '/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
 }
@@ -103,7 +103,7 @@ export interface FileRoutesByTo {
   '/admin': typeof LayoutAdminRoute
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
-  '/teams': typeof LayoutTeamsRouteWithChildren
+  '/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/': typeof LayoutIndexRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
@@ -118,10 +118,10 @@ export interface FileRoutesById {
   '/_layout/admin': typeof LayoutAdminRoute
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
-  '/_layout/teams': typeof LayoutTeamsRouteWithChildren
+  '/_layout/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/_layout/': typeof LayoutIndexRoute
-  '/_layout/teams/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/_layout/teams_/$teamId': typeof LayoutTeamsTeamIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -163,7 +163,7 @@ export interface FileRouteTypes {
     | '/_layout/teams'
     | '/invite/$code'
     | '/_layout/'
-    | '/_layout/teams/$teamId'
+    | '/_layout/teams_/$teamId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -254,42 +254,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_layout/teams/$teamId': {
-      id: '/_layout/teams/$teamId'
-      path: '/$teamId'
+    '/_layout/teams_/$teamId': {
+      id: '/_layout/teams_/$teamId'
+      path: '/teams/$teamId'
       fullPath: '/teams/$teamId'
       preLoaderRoute: typeof LayoutTeamsTeamIdRouteImport
-      parentRoute: typeof LayoutTeamsRoute
+      parentRoute: typeof LayoutRoute
     }
   }
 }
-
-interface LayoutTeamsRouteChildren {
-  LayoutTeamsTeamIdRoute: typeof LayoutTeamsTeamIdRoute
-}
-
-const LayoutTeamsRouteChildren: LayoutTeamsRouteChildren = {
-  LayoutTeamsTeamIdRoute: LayoutTeamsTeamIdRoute,
-}
-
-const LayoutTeamsRouteWithChildren = LayoutTeamsRoute._addFileChildren(
-  LayoutTeamsRouteChildren,
-)
 
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
-  LayoutTeamsRoute: typeof LayoutTeamsRouteWithChildren
+  LayoutTeamsRoute: typeof LayoutTeamsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
+  LayoutTeamsTeamIdRoute: typeof LayoutTeamsTeamIdRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
-  LayoutTeamsRoute: LayoutTeamsRouteWithChildren,
+  LayoutTeamsRoute: LayoutTeamsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
+  LayoutTeamsTeamIdRoute: LayoutTeamsTeamIdRoute,
 }
 
 const LayoutRouteWithChildren =

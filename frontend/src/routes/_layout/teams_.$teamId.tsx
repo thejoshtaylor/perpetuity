@@ -22,7 +22,7 @@ function getTeamsQueryOptions() {
   }
 }
 
-export const Route = createFileRoute("/_layout/teams/$teamId")({
+export const Route = createFileRoute("/_layout/teams_/$teamId")({
   component: TeamDetail,
   head: () => ({
     meta: [
