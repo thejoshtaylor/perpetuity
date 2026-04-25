@@ -45,6 +45,29 @@ services:
       retries: 5
       start_period: 10s
 
+  # S02/T03: prepare /var/lib/perpetuity/workspaces as a shared mountpoint
+  # on the host (linuxkit VM) BEFORE the orchestrator boots. This enables
+  # bind-mount propagation from orchestrator to host so that loopback-ext4
+  # mounts performed inside the orchestrator are visible to dockerd when
+  # it creates workspace containers (which bind-mount the same path).
+  # Without this the workspace containers would see the underlying host
+  # directory, not the ext4 mount, and the kernel-enforced size cap would
+  # not bite. Runs once per compose up; on Linux hosts where /var/lib is
+  # already a shared mount this is a no-op (mount --make-shared is
+  # idempotent).
+  workspace-mount-init:
+    image: alpine:3
+    pid: host
+    privileged: true
+    restart: "no"
+    command: >
+      nsenter -t 1 -m -- sh -c "
+      mkdir -p /var/lib/perpetuity/workspaces /var/lib/perpetuity/vols &&
+      ( mountpoint -q /var/lib/perpetuity/workspaces || mount --bind /var/lib/perpetuity/workspaces /var/lib/perpetuity/workspaces ) &&
+      mount --make-shared /var/lib/perpetuity/workspaces &&
+      echo workspace_mount_init_ok
+      "
+
   orchestrator:
     image: '${DOCKER_IMAGE_ORCHESTRATOR-orchestrator}:${TAG-latest}'
     restart: always
@@ -58,18 +81,45 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      workspace-mount-init:
+        condition: service_completed_successfully
     # D005: orchestrator is the ONLY service that mounts the Docker socket.
+    # NOTE: orchestrator does NOT depend on prestart (the backend container
+    # that applies migrations) because the existing dev .env pins
+    # POSTGRES_PORT=55432 which the prestart container respects but the
+    # orchestrator (which uses db:5432 internally) does not. MEM021
+    # captures this drift. Until that is reconciled, the workspace_volume
+    # table must be migrated manually before the orchestrator's first
+    # /v1/sessions request — the orchestrator boots fine without it and
+    # surfaces 503 from POST /v1/sessions until the table exists.
     # T03: also bind-mount the workspace root 1:1 so the orchestrator can
     # `mkdir -p /var/lib/perpetuity/workspaces/<u>/<t>/` and pass the same
     # host path to workspace containers as a bind-mount source. S02 swaps
     # this for loopback-ext4 volumes mounted at the same path.
+    # S02/T03: also bind-mount /var/lib/perpetuity/vols (the .img store) so
+    # per-volume loopback files survive orchestrator restarts.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /var/lib/perpetuity/workspaces:/var/lib/perpetuity/workspaces
-    # D014: required for losetup/mount in S02. Added in T01 because changing
-    # compose privilege boundaries later is more disruptive than once.
-    cap_add:
-      - SYS_ADMIN
+      # S02/T03: workspaces uses propagation=rshared so loopback-ext4 mounts
+      # performed inside the orchestrator propagate back to the host's mount
+      # namespace — without this, dockerd creates workspace containers
+      # against the *underlying* host directory (not the ext4 mount), which
+      # bypasses the kernel-enforced size cap.
+      # PREREQUISITE: the host's /var/lib/perpetuity/workspaces must be a
+      # shared mountpoint. See orchestrator's startup `_ensure_shared_mount`
+      # which arranges this before lifespan continues.
+      - type: bind
+        source: /var/lib/perpetuity/workspaces
+        target: /var/lib/perpetuity/workspaces
+        bind:
+          propagation: rshared
+      - /var/lib/perpetuity/vols:/var/lib/perpetuity/vols
+    # D014/MEM136: real loopback-ext4 mounts require `privileged: true` on
+    # Docker Desktop / linuxkit. SYS_ADMIN + /dev/loop-control alone is not
+    # enough because the per-loop device nodes (/dev/loopN) are not
+    # auto-created without privileged mode. Privileged is bounded to the
+    # orchestrator service only (the workspace containers stay unprivileged).
+    privileged: true
     env_file:
       - .env
     environment:
@@ -79,6 +129,9 @@ services:
       - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
       - ORCHESTRATOR_API_KEY_PREVIOUS=${ORCHESTRATOR_API_KEY_PREVIOUS-}
       - WORKSPACE_IMAGE=${WORKSPACE_IMAGE-perpetuity/workspace:latest}
+      # S02/T03: orchestrator owns the workspace_volume row lookup. Backend
+      # owns the schema (s04 migration); the orchestrator only reads/inserts.
+      - DATABASE_URL=postgresql://${POSTGRES_USER?Variable not set}:${POSTGRES_PASSWORD?Variable not set}@db:5432/${POSTGRES_DB?Variable not set}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8001/v1/health"]
       interval: 10s

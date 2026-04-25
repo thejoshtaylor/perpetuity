@@ -38,6 +38,7 @@ from orchestrator.sessions import (
     resize_tmux_session,
     start_tmux_session,
 )
+from orchestrator.volume_store import get_pool
 
 logger = logging.getLogger("orchestrator")
 
@@ -114,7 +115,10 @@ async def create_session(
     team_id = str(body.team_id)
     session_id = str(body.session_id)
 
-    container_id, created = await provision_container(docker, user_id, team_id)
+    pg = get_pool()
+    container_id, created = await provision_container(
+        docker, user_id, team_id, pg=pg
+    )
     await start_tmux_session(docker, container_id, session_id)
 
     registry = get_registry()

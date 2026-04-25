@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
+import stat
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -30,11 +30,14 @@ from orchestrator.errors import (
     DockerUnavailable,
     ImagePullFailed,
     RedisUnavailable,
+    VolumeProvisionFailed,
+    WorkspaceVolumeStoreUnavailable,
 )
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
 from orchestrator.routes_sessions import router as sessions_router
 from orchestrator.routes_ws import router as ws_router
 from orchestrator.sessions import VolumeMountFailed
+from orchestrator.volume_store import close_pool, open_pool, set_pool
 
 logger = logging.getLogger("orchestrator")
 logging.basicConfig(
@@ -105,6 +108,40 @@ async def _pull_workspace_image(docker: aiodocker.Docker) -> None:
     logger.info("image_pull_ok image=%s source=registry", image)
 
 
+def _ensure_loop_device_nodes(count: int = 32) -> None:
+    """mknod /dev/loopN for N in [0, count) if missing.
+
+    On Docker Desktop / linuxkit (MEM136), the privileged orchestrator
+    container ships only loops 0-7 by default. Per-volume provisioning
+    can outpace that; the kernel's LOOP_CTL_GET_FREE returns numbers
+    beyond the pre-created nodes and `losetup --find --show` then fails
+    with `No such file or directory` for the new device. mknod-ing more
+    nodes up-front gives us headroom without changing the security
+    boundary (we already need privileged for losetup at all).
+
+    On native Linux hosts the nodes are universally present; mknod on
+    an existing path raises FileExistsError which we ignore.
+    """
+    for n in range(count):
+        path = f"/dev/loop{n}"
+        if os.path.exists(path):
+            continue
+        try:
+            # major=7 (loop), minor=N. mode 0o660 with type S_IFBLK.
+            os.mknod(path, mode=stat.S_IFBLK | 0o660, device=os.makedev(7, n))
+        except (FileExistsError, PermissionError, OSError) as exc:
+            # Best-effort — if we can't mknod (non-privileged, non-Linux,
+            # whatever) we let the first losetup --find failure surface
+            # the real problem at request time. Boot doesn't depend on
+            # this.
+            logger.warning(
+                "loop_device_mknod_failed loop=%d reason=%s",
+                n,
+                type(exc).__name__,
+            )
+            break
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     redacted = (
@@ -116,6 +153,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         redacted,
         settings.workspace_image,
     )
+
+    # Pre-create enough loop device nodes for sustained provisioning. On
+    # privileged Linux this is a no-op; on linuxkit it adds the missing
+    # /dev/loopN nodes the kernel needs to bind beyond loop 7. See MEM136
+    # and the docstring on `_ensure_loop_device_nodes`.
+    _ensure_loop_device_nodes(count=32)
 
     # Boot-time fail-fast: ORCHESTRATOR_API_KEY must be set, otherwise every
     # downstream request 401s and we'd rather scream than silently misbehave.
@@ -155,12 +198,40 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_registry(registry)
     app.state.registry = registry
 
+    # Postgres asyncpg pool — owned by the lifespan. Tests that import
+    # the app without running the lifespan can substitute via set_pool.
+    # Boot-time pool open is best-effort: if Postgres is briefly slow,
+    # the pool open itself will retry inside asyncpg; if it fails hard
+    # we log a warning and continue — routes will 503 with the structured
+    # `workspace_volume_store_unavailable` shape until pg comes back. We
+    # deliberately do NOT os._exit here — Postgres can come up after the
+    # orchestrator and we'd rather serve /v1/health and the auth
+    # middleware than crash-loop the orchestrator container.
+    pg_pool = None
+    if os.environ.get("SKIP_PG_POOL_ON_BOOT") != "1":
+        try:
+            pg_pool = await open_pool()
+            set_pool(pg_pool)
+            logger.info("pg_pool_opened size=5")
+        except WorkspaceVolumeStoreUnavailable as exc:
+            logger.warning(
+                "pg_pool_unavailable_at_boot reason=%s",
+                str(exc),
+            )
+            set_pool(None)
+    else:
+        # Test path: the unit suite imports the app without a real Postgres.
+        set_pool(None)
+    app.state.pg = pg_pool
+
     logger.info("orchestrator_ready image_present=%s", _health["image_present"])
     try:
         yield
     finally:
         await registry.close()
         set_registry(None)
+        await close_pool(pg_pool)
+        set_pool(None)
         if docker is not None:
             await docker.close()
 
@@ -201,10 +272,53 @@ async def _docker_unavailable_handler(
 async def _volume_mount_failed_handler(
     _request: Request, exc: VolumeMountFailed
 ) -> JSONResponse:
-    # T03 placeholder shape; S02 owns the rich loopback-volume failure space.
+    # Backward-compat handler kept from T03's plain-dir path. The S02
+    # loopback-volume flow surfaces failures as VolumeProvisionFailed
+    # (handled below); this handler only fires if a future code path
+    # falls back to the bind-mount mkdir helper.
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "volume_mount_failed", "reason": str(exc)},
+    )
+
+
+@app.exception_handler(VolumeProvisionFailed)
+async def _volume_provision_failed_handler(
+    _request: Request, exc: VolumeProvisionFailed
+) -> JSONResponse:
+    """S02 loopback-ext4 provisioning failure → 500 with the failing step.
+
+    `step` is one of {truncate, mkfs, losetup, mount} so the next agent
+    can re-run that exact command by hand from inside the orchestrator.
+    `reason` is the first non-empty stderr line, truncated to 200 chars
+    by the `volumes` module — leak-safe by construction (MEM134).
+    """
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "volume_provision_failed",
+            "step": exc.step,
+            "reason": exc.reason,
+        },
+    )
+
+
+@app.exception_handler(WorkspaceVolumeStoreUnavailable)
+async def _workspace_volume_store_unavailable_handler(
+    _request: Request, exc: WorkspaceVolumeStoreUnavailable
+) -> JSONResponse:
+    """Postgres unreachable / pool exhausted / query timeout → 503.
+
+    Distinct shape from `redis_unavailable` so the backend can surface
+    "your scrollback is degraded" (redis) differently from "your fresh
+    workspace can't be provisioned right now" (pg).
+    """
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": "workspace_volume_store_unavailable",
+            "reason": str(exc),
+        },
     )
 
 

@@ -32,6 +32,7 @@ import os
 from typing import Any
 
 import aiodocker
+import asyncpg
 from aiodocker.exceptions import DockerError
 
 from orchestrator.config import settings
@@ -39,6 +40,7 @@ from orchestrator.errors import (
     DockerUnavailable,
     OrchestratorError,
 )
+from orchestrator.volume_store import ensure_volume_for
 
 logger = logging.getLogger("orchestrator")
 
@@ -233,7 +235,11 @@ async def _ensure_workspace_dir(host_path: str) -> None:
 
 
 async def provision_container(
-    docker: aiodocker.Docker, user_id: str, team_id: str
+    docker: aiodocker.Docker,
+    user_id: str,
+    team_id: str,
+    *,
+    pg: asyncpg.Pool,
 ) -> tuple[str, bool]:
     """Look up or create the (user, team) workspace container.
 
@@ -241,14 +247,38 @@ async def provision_container(
     container was just created — used by the route to populate the
     `created` field in the POST /v1/sessions response.
 
+    Volume backing: before creating the container we ensure a
+    workspace_volume row + .img + ext4 mount exist for `(user_id, team_id)`
+    via `ensure_volume_for`. The bind-mount source is the loopback-ext4
+    mountpoint (same path the T03 plain-dir flow used) so the container's
+    in-container path `/workspaces/<team_id>/` is unchanged from S01 —
+    the kernel-enforced size cap is the only behavior change.
+
     Container reuse: if a running container with matching labels already
-    exists, return its id without disturbing it. Concurrent provisioning
-    requests from the same (user, team) can race here; in the worst case
-    two simultaneous calls might both miss and both attempt create — the
-    second would 409-conflict on the deterministic name. We treat that
-    409 as "someone else won" and refetch. Anything else we surface as
-    DockerUnavailable.
+    exists, return its id without disturbing it. We still call
+    `ensure_volume_for` on the reuse path so a re-provision after a host
+    reboot re-mounts the .img (mount_image is idempotent on an already-
+    mounted path; the cost is one losetup -j read on the warm path).
+
+    Concurrent provisioning requests from the same (user, team) can race
+    on container create; in the worst case two simultaneous calls might
+    both miss and both attempt create — the second would 409-conflict on
+    the deterministic name. We treat that 409 as "someone else won" and
+    refetch. Anything else we surface as DockerUnavailable. The volume
+    layer has its own concurrent-create handling (uniqueness on
+    workspace_volume).
     """
+    host_workspace = _workspace_host_path(user_id, team_id)
+    container_workspace = _workspace_container_path(team_id)
+
+    # Ensure the volume row + .img + mount exist BEFORE we touch Docker.
+    # If this fails, we never create a container — keeps the half-state
+    # surface area to "DB row exists, .img exists, mount may or may not"
+    # which is recoverable on retry (everything is idempotent).
+    await ensure_volume_for(
+        pg, user_id, team_id, mountpoint=host_workspace
+    )
+
     existing = await _find_container_by_labels(docker, user_id, team_id)
     if existing is not None:
         logger.info(
@@ -259,9 +289,6 @@ async def provision_container(
         )
         return existing, False
 
-    host_workspace = _workspace_host_path(user_id, team_id)
-    container_workspace = _workspace_container_path(team_id)
-    await _ensure_workspace_dir(host_workspace)
     config = _build_container_config(
         user_id, team_id, host_workspace, container_workspace
     )

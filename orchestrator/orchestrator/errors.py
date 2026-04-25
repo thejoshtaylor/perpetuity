@@ -41,6 +41,19 @@ class Unauthorized(OrchestratorError):
     """Shared-secret mismatch on HTTP. Maps to 401."""
 
 
+class WorkspaceVolumeStoreUnavailable(OrchestratorError):
+    """asyncpg pool is closed, exhausted, or the underlying connection
+    failed. Mapped to 503 — the orchestrator cannot persist or look up
+    a workspace_volume row without Postgres.
+
+    Distinct from `RedisUnavailable` because the failure semantics differ:
+    Redis holds ephemeral session state (recoverable on retry against a
+    healed cluster); Postgres holds the durable (user, team) → img_path
+    mapping (no in-memory fallback). The 503 shape signals "infrastructure
+    degraded; retry the same request later".
+    """
+
+
 class VolumeProvisionFailed(OrchestratorError):
     """Loopback-ext4 volume provisioning failed.
 
