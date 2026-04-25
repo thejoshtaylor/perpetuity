@@ -172,6 +172,35 @@ class TeamInvite(SQLModel, table=True):
     )
 
 
+# Workspace volume: per-(user, team) loopback-ext4 .img backing for the
+# workspace container's bind-mount. One row per (user, team) — the
+# uq_workspace_volume_user_team constraint is the D004/MEM004 invariant.
+# size_gb is the effective per-volume cap (the kernel-enforced ext4 size of
+# the .img). img_path is the absolute host-side path to the .img file
+# (uuid-keyed by construction so it never embeds PII).
+class WorkspaceVolume(SQLModel, table=True):
+    __tablename__ = "workspace_volume"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "team_id", name="uq_workspace_volume_user_team"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    size_gb: int = Field(nullable=False)
+    img_path: str = Field(max_length=512, nullable=False, unique=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
 class TeamInvitePublic(SQLModel):
     id: uuid.UUID
     code: str
