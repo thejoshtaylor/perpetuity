@@ -29,6 +29,7 @@ so it is safe to log directly.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import NamedTuple
@@ -46,6 +47,16 @@ logger = logging.getLogger("orchestrator")
 # for "Postgres unreachable mid-provision → 503". Anything longer and the
 # backend's own request budget would expire first.
 _POOL_COMMAND_TIMEOUT_SECONDS = 5.0
+
+
+# Mirrors the backend admin API's workspace_volume_size_gb validator
+# (MEM094). Keep the bound here so a transiently-invalid system_settings
+# row (e.g. a future schema bug or hand-edited row) cannot push provision
+# into out-of-range territory; we fall back to the boot-time default
+# rather than honor a bad value.
+_WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
+_WORKSPACE_VOLUME_SIZE_GB_MIN = 1
+_WORKSPACE_VOLUME_SIZE_GB_MAX = 256
 
 
 class VolumeRecord(NamedTuple):
@@ -213,6 +224,103 @@ async def create_volume(
     return _row_to_record(row)
 
 
+async def _resolve_default_size_gb(pool: asyncpg.Pool) -> int:
+    """Return the live workspace_volume_size_gb cap from system_settings,
+    falling back to settings.default_volume_size_gb on miss/invalid/error.
+
+    No in-process caching: the slice acceptance demands a fresh PUT take
+    effect on the very next provision. Provision is rare (R001 — fresh
+    signups, not a hot path), so a single SELECT per fresh-volume create
+    is cheap. Existing-volume provisions never call this helper (D015's
+    partial-apply rule — existing rows keep their own size_gb).
+
+    Reasons to fall back to the boot-time default:
+      - row missing (system_settings never written; brand-new install)
+      - asyncpg returns None (NULL value column — schema disallows but
+        defensive)
+      - value is not an int in [1, 256] (transient bad row)
+      - pg unreachable / timeout (we'd rather provision at the safe
+        default than fail the whole signup)
+
+    Logs WARNING `system_settings_lookup_failed key=workspace_volume_size_gb
+    reason=<class>` on any non-happy path so operators see the issue, and
+    INFO `volume_size_gb_resolved source=<system_settings|fallback>
+    value=<n>` on every call so the new default biting (or not) is
+    visible in compose logs.
+
+    asyncpg returns JSONB columns as the raw JSON string by default
+    (without `set_type_codec("jsonb", ...)` registered on the pool). We
+    json.loads the string here rather than registering a codec on the
+    shared pool — the codec would silently change the shape of every
+    other JSONB read in this module/future modules. JSON parse failure
+    is treated as "InvalidValue" (same fallback path as type/range mismatch).
+    """
+    fallback = settings.default_volume_size_gb
+    sql = "SELECT value FROM system_settings WHERE key = $1"
+    try:
+        async with pool.acquire() as conn:
+            raw = await conn.fetchval(sql, _WORKSPACE_VOLUME_SIZE_GB_KEY)
+    except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _WORKSPACE_VOLUME_SIZE_GB_KEY,
+            type(exc).__name__,
+        )
+        logger.info(
+            "volume_size_gb_resolved source=fallback value=%d",
+            fallback,
+        )
+        return fallback
+
+    if raw is None:
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _WORKSPACE_VOLUME_SIZE_GB_KEY,
+            "RowMissing",
+        )
+        logger.info(
+            "volume_size_gb_resolved source=fallback value=%d",
+            fallback,
+        )
+        return fallback
+
+    # asyncpg returns JSONB as the raw JSON text by default; parse here.
+    # On parse failure, fall through the InvalidValue branch.
+    try:
+        value: object = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        value = None  # forces the InvalidValue branch below
+
+    # Reject bool explicitly (bool is a subclass of int in Python — JSON
+    # `true` would otherwise coerce to 1 and silently honor a malformed
+    # row). Mirrors the backend admin API's per-key validator.
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not (
+            _WORKSPACE_VOLUME_SIZE_GB_MIN
+            <= value
+            <= _WORKSPACE_VOLUME_SIZE_GB_MAX
+        )
+    ):
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _WORKSPACE_VOLUME_SIZE_GB_KEY,
+            "InvalidValue",
+        )
+        logger.info(
+            "volume_size_gb_resolved source=fallback value=%d",
+            fallback,
+        )
+        return fallback
+
+    logger.info(
+        "volume_size_gb_resolved source=system_settings value=%d",
+        value,
+    )
+    return value
+
+
 async def ensure_volume_for(
     pool: asyncpg.Pool,
     user_id: str,
@@ -237,9 +345,10 @@ async def ensure_volume_for(
       user_id, team_id: canonical UUIDs
       mountpoint: where to mount the volume (e.g.
         `/var/lib/perpetuity/workspaces/<user>/<team>`)
-      size_gb: override for new-row creation; defaults to
-        `settings.default_volume_size_gb` (4 GB until S03 wires
-        system_settings)
+      size_gb: explicit override for new-row creation. When None
+        (the default), resolves the live cap from
+        `system_settings.workspace_volume_size_gb` per call, falling
+        back to `settings.default_volume_size_gb` (4 GB) on miss/error.
       vols_dir: override for the .img directory; defaults to
         `settings.vols_dir` (`/var/lib/perpetuity/vols`)
     """
@@ -272,7 +381,17 @@ async def ensure_volume_for(
     #       another concurrent provisioner inserts first and we lose the
     #       unique-violation race, our .img file lingers but is harmless
     #       (uuid-keyed, will be reaped manually if it ever matters).
-    target_size_gb = size_gb if size_gb is not None else settings.default_volume_size_gb
+    if size_gb is not None:
+        # Explicit caller override — bypasses system_settings (test paths
+        # and any future programmatic override). The size is still bounded
+        # by the size_gb <= 0 guard below.
+        target_size_gb = size_gb
+    else:
+        # Live lookup against system_settings so a fresh PUT against the
+        # admin API takes effect on the very next provision (D015 + slice
+        # acceptance). Falls back to settings.default_volume_size_gb on
+        # any error, missing row, or invalid value — see _resolve_default_size_gb.
+        target_size_gb = await _resolve_default_size_gb(pool)
     if target_size_gb <= 0:
         # Defensive — slice plan says 1..256 is enforced at the app layer
         # (S03 admin API). Until then, refuse <= 0 here so allocate_image
@@ -388,4 +507,5 @@ __all__ = [
     "ensure_volume_for",
     "set_pool",
     "get_pool",
+    "_resolve_default_size_gb",
 ]

@@ -882,3 +882,85 @@ def test_response_shape_stable(
     assert set(body.keys()) == {"session_id", "container_id", "tmux_session", "created"}
     # Round-trips through json so any non-serializable field would fail here.
     json.dumps(body)
+
+
+def _upsert_workspace_volume_size_gb_via_psql(value) -> None:
+    """UPSERT system_settings.workspace_volume_size_gb via the live db
+    container. Mirrors the backend admin API's UPSERT shape (MEM152) but
+    runs from the host pytest process, where we don't have asyncpg
+    plumbing. Uses `docker exec ... psql` for symmetry with the rest of
+    this module's DB helpers.
+    """
+    payload = json.dumps(value)
+    # Single-quote the JSON for psql; payload is a JSON literal so it
+    # already has its own quoting where it needs it (e.g. a JSON string
+    # value gets double-quoted by json.dumps).
+    sql = (
+        "INSERT INTO system_settings (key, value, updated_at) "
+        f"VALUES ('workspace_volume_size_gb', '{payload}'::jsonb, NOW()) "
+        "ON CONFLICT (key) DO UPDATE "
+        "SET value = EXCLUDED.value, updated_at = NOW()"
+    )
+    _psql_query(sql)
+
+
+def _delete_workspace_volume_size_gb_via_psql() -> None:
+    _psql_query("DELETE FROM system_settings WHERE key = 'workspace_volume_size_gb'")
+
+
+def test_provision_uses_resolved_default(
+    orchestrator: dict[str, str],
+) -> None:
+    """T03: UPSERT system_settings.workspace_volume_size_gb=2, then a fresh
+    POST /v1/sessions for a brand-new (user, team) creates a workspace_volume
+    row with size_gb=2 — proving the orchestrator reads the live cap on
+    every fresh provision (no in-process caching, no orchestrator restart
+    needed).
+
+    Existing rows are NEVER re-derived (D015 partial-apply rule). This test
+    exercises the FRESH-row branch only; the existing-row idempotency
+    invariant is covered by `test_provision_idempotent_volume`.
+    """
+    # Start clean — no row in system_settings — so we can prove the
+    # UPSERT is what causes the change (vs. a stale row).
+    _delete_workspace_volume_size_gb_via_psql()
+    _upsert_workspace_volume_size_gb_via_psql(2)
+    try:
+        # Brand-new (user, team) — guarantees the fresh-row branch.
+        user, team = _create_pg_user_team()
+        try:
+            sid = str(uuid.uuid4())
+            with _client(orchestrator["base_url"], orchestrator["api_key"]) as c:
+                r = c.post(
+                    "/v1/sessions",
+                    json={"session_id": sid, "user_id": user, "team_id": team},
+                )
+            assert r.status_code == 200, r.text
+
+            row = _psql_query(
+                "SELECT size_gb FROM workspace_volume "
+                f"WHERE user_id = '{user}' AND team_id = '{team}'"
+            )
+            assert row, f"no workspace_volume row for ({user}, {team})"
+            assert int(row) == 2, (
+                f"expected size_gb=2 from system_settings; got {row!r}"
+            )
+
+            # Observability check (slice plan): the orchestrator emitted
+            # an INFO line announcing the resolution path. Belt-and-
+            # suspenders proof that the helper actually ran.
+            logs = (
+                _docker("logs", orchestrator["name"], check=False).stdout or ""
+            ) + (
+                _docker("logs", orchestrator["name"], check=False).stderr or ""
+            )
+            assert "volume_size_gb_resolved source=system_settings value=2" in logs, (
+                "expected volume_size_gb_resolved INFO line in orchestrator "
+                f"logs; tail:\n{logs[-3000:]}"
+            )
+        finally:
+            _cleanup_pg_user_team(user, team)
+    finally:
+        # Restore the absent state so other tests boot fresh orchestrators
+        # at the boot-time default (4 GiB) without tripping over our row.
+        _delete_workspace_volume_size_gb_via_psql()

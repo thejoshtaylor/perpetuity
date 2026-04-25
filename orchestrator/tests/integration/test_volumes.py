@@ -528,3 +528,174 @@ async def test_unmount_image_releases_loop_device(
         ["losetup", "-a"], capture_output=True, text=True, timeout=5
     )
     assert img_path not in post.stdout
+
+
+# ---------------------------------------------------------------------------
+# T03 system_settings lookup tests (S03/T03).
+#
+# Hit the live compose `db` host to verify that
+# volume_store._resolve_default_size_gb actually reads from system_settings
+# and falls back correctly. These tests wipe the workspace_volume_size_gb
+# row before/after to keep state hermetic; they don't touch any other key.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def pg_pool():
+    """Open a dedicated asyncpg pool against the live compose db.
+
+    The module-under-test (volume_store) has its own pool that the
+    orchestrator's lifespan manages; for these helper-shaped tests we want
+    a pool we own and tear down per test so a single failed test cannot
+    leak a connection into other tests' state.
+    """
+    import asyncpg
+
+    from orchestrator.config import settings as orch_settings
+
+    pool = await asyncpg.create_pool(
+        dsn=orch_settings.database_url,
+        min_size=1,
+        max_size=2,
+        command_timeout=5.0,
+    )
+    if pool is None:
+        pytest.skip("could not open asyncpg pool against compose db")
+    try:
+        yield pool
+    finally:
+        await pool.close()
+
+
+@pytest.fixture
+async def clean_workspace_volume_size_gb(pg_pool):
+    """Ensure the system_settings row for workspace_volume_size_gb is gone
+    before and after each test so a stale row from another test (or from
+    the live admin API) does not contaminate the lookup.
+    """
+    delete = "DELETE FROM system_settings WHERE key = $1"
+    async with pg_pool.acquire() as conn:
+        await conn.execute(delete, "workspace_volume_size_gb")
+    try:
+        yield
+    finally:
+        async with pg_pool.acquire() as conn:
+            await conn.execute(delete, "workspace_volume_size_gb")
+
+
+async def _upsert_workspace_volume_size_gb(pool, value) -> None:
+    """UPSERT workspace_volume_size_gb in system_settings to `value`.
+
+    Mirrors the backend admin API's UPSERT shape (MEM152): cast a JSON
+    string to JSONB so a non-dict scalar (int, string) round-trips
+    cleanly — `asyncpg` would otherwise reject `int` against a JSONB
+    column.
+    """
+    import json
+
+    sql = (
+        "INSERT INTO system_settings (key, value, updated_at) "
+        "VALUES ($1, $2::jsonb, NOW()) "
+        "ON CONFLICT (key) DO UPDATE "
+        "SET value = EXCLUDED.value, updated_at = NOW()"
+    )
+    async with pool.acquire() as conn:
+        await conn.execute(sql, "workspace_volume_size_gb", json.dumps(value))
+
+
+async def test_resolve_default_size_gb_reads_system_settings(
+    pg_pool,
+    clean_workspace_volume_size_gb,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T03: when system_settings.workspace_volume_size_gb=2, the helper
+    returns 2 (not the boot-time default of 4) and emits a
+    `volume_size_gb_resolved source=system_settings value=2` INFO line.
+    """
+    import logging
+
+    from orchestrator.volume_store import _resolve_default_size_gb
+
+    await _upsert_workspace_volume_size_gb(pg_pool, 2)
+
+    caplog.set_level(logging.INFO, logger="orchestrator")
+    value = await _resolve_default_size_gb(pg_pool)
+
+    assert value == 2
+    # The INFO line must say the value came from system_settings, not fallback.
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any(
+        "volume_size_gb_resolved source=system_settings value=2" in m
+        for m in msgs
+    ), f"missing system_settings INFO line; messages={msgs!r}"
+    assert not any(
+        "system_settings_lookup_failed" in m for m in msgs
+    ), f"unexpected lookup_failed warning; messages={msgs!r}"
+
+
+async def test_resolve_default_size_gb_falls_back_when_missing(
+    pg_pool,
+    clean_workspace_volume_size_gb,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T03: when there's no system_settings row for the key, the helper
+    returns settings.default_volume_size_gb and emits a fallback INFO line
+    AND a `system_settings_lookup_failed reason=RowMissing` WARNING.
+    """
+    import logging
+
+    from orchestrator.config import settings as orch_settings
+    from orchestrator.volume_store import _resolve_default_size_gb
+
+    # clean_workspace_volume_size_gb fixture already deleted the row.
+
+    caplog.set_level(logging.DEBUG, logger="orchestrator")
+    value = await _resolve_default_size_gb(pg_pool)
+
+    assert value == orch_settings.default_volume_size_gb
+    assert value == 4, "boot-time default should be 4 GiB"
+
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any(
+        f"volume_size_gb_resolved source=fallback value={value}" in m
+        for m in msgs
+    ), f"missing fallback INFO line; messages={msgs!r}"
+    assert any(
+        "system_settings_lookup_failed key=workspace_volume_size_gb reason=RowMissing"
+        in m
+        for m in msgs
+    ), f"missing RowMissing WARNING; messages={msgs!r}"
+
+
+async def test_resolve_default_size_gb_falls_back_on_invalid_value(
+    pg_pool,
+    clean_workspace_volume_size_gb,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T03: when system_settings holds a non-int (e.g. "banana"), the
+    helper returns settings.default_volume_size_gb (NOT the bad value)
+    and emits a `system_settings_lookup_failed reason=InvalidValue` warning.
+    """
+    import logging
+
+    from orchestrator.config import settings as orch_settings
+    from orchestrator.volume_store import _resolve_default_size_gb
+
+    # JSON string "banana" is not int — the validator should reject it.
+    await _upsert_workspace_volume_size_gb(pg_pool, "banana")
+
+    caplog.set_level(logging.DEBUG, logger="orchestrator")
+    value = await _resolve_default_size_gb(pg_pool)
+
+    assert value == orch_settings.default_volume_size_gb
+
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any(
+        "system_settings_lookup_failed key=workspace_volume_size_gb reason=InvalidValue"
+        in m
+        for m in msgs
+    ), f"missing InvalidValue WARNING; messages={msgs!r}"
+    assert any(
+        f"volume_size_gb_resolved source=fallback value={value}" in m
+        for m in msgs
+    ), f"missing fallback INFO line; messages={msgs!r}"
