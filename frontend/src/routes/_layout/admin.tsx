@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Outlet, useMatches } from "@tanstack/react-router"
 import { Suspense } from "react"
 
 import { type UserPublic, UsersService } from "@/client"
@@ -50,6 +50,17 @@ function UsersTable() {
 }
 
 function Admin() {
+  // A child file-route (admin.teams_.$teamId.tsx) nests under this route.
+  // When the URL matches the child, render the child via <Outlet /> instead
+  // of the users-table shell, so /admin/teams/<id> shows the members page.
+  const matches = useMatches()
+  const hasChildMatch = matches.some(
+    (m) => m.routeId === "/_layout/admin/teams_/$teamId",
+  )
+  if (hasChildMatch) {
+    return <Outlet />
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">

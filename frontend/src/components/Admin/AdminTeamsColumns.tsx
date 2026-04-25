@@ -26,7 +26,12 @@ export const adminTeamsColumns: ColumnDef<AdminTeamRow>[] = [
     accessorKey: "name",
     header: "Name",
     cell: ({ row }) => (
-      <span className="font-medium" title={row.original.name}>
+      <span
+        className="font-medium"
+        data-testid="admin-teams-row"
+        data-team-id={row.original.id}
+        title={row.original.name}
+      >
         {row.original.name}
       </span>
     ),

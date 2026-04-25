@@ -42,7 +42,7 @@ export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
           <EditUser user={user} onSuccess={() => setOpen(false)} />
           {canPromoteToSystemAdmin && (
             <DropdownMenuItem
-              data-testid="promote-system-admin-trigger"
+              data-testid="promote-system-admin"
               onSelect={(e) => {
                 e.preventDefault()
                 setOpen(false)

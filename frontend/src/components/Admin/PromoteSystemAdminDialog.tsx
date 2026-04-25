@@ -82,7 +82,7 @@ const PromoteSystemAdminDialog = ({
           </DialogClose>
           <LoadingButton
             type="button"
-            data-testid="promote-system-admin-confirm"
+            data-testid="confirm-promote"
             loading={mutation.isPending}
             onClick={() => mutation.mutate()}
           >
