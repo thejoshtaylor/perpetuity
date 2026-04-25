@@ -20,9 +20,10 @@ const baseItems: Item[] = [
 export function AppSidebar() {
   const { user: currentUser } = useAuth()
 
-  const items = currentUser?.is_superuser
-    ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
-    : baseItems
+  const items =
+    currentUser?.role === "system_admin"
+      ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
+      : baseItems
 
   return (
     <Sidebar collapsible="icon">

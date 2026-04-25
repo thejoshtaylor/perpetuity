@@ -18,9 +18,12 @@ function getUsersQueryOptions() {
 
 export const Route = createFileRoute("/_layout/admin")({
   component: Admin,
-  beforeLoad: async () => {
-    const user = await UsersService.readUserMe()
-    if (!user.is_superuser) {
+  beforeLoad: async ({ context }) => {
+    const user = await context.queryClient.ensureQueryData({
+      queryKey: ["currentUser"],
+      queryFn: UsersService.readUserMe,
+    })
+    if (user.role !== "system_admin") {
       throw redirect({
         to: "/",
       })

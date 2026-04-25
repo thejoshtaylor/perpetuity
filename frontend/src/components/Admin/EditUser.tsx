@@ -4,7 +4,7 @@ import { Pencil } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
+import type { UserRole, UserUpdate } from "@/client"
 import { type UserPublic, UsersService } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -68,13 +68,13 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
     defaultValues: {
       email: user.email,
       full_name: user.full_name ?? undefined,
-      is_superuser: user.is_superuser,
+      is_superuser: user.role === "system_admin",
       is_active: user.is_active,
     },
   })
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) =>
+    mutationFn: (data: UserUpdate) =>
       UsersService.updateUser({ userId: user.id, requestBody: data }),
     onSuccess: () => {
       showSuccessToast("User updated successfully")
@@ -88,10 +88,17 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
   })
 
   const onSubmit = (data: FormData) => {
-    // exclude confirm_password from submission data and remove password if empty
-    const { confirm_password: _, ...submitData } = data
-    if (!submitData.password) {
-      delete submitData.password
+    // exclude confirm_password; convert is_superuser → role at the boundary.
+    const { confirm_password: _, is_superuser, password, ...rest } = data
+    const role: UserRole | undefined =
+      is_superuser === undefined
+        ? undefined
+        : is_superuser
+          ? "system_admin"
+          : "user"
+    const submitData: UserUpdate = { ...rest, role }
+    if (password) {
+      submitData.password = password
     }
     mutation.mutate(submitData)
   }

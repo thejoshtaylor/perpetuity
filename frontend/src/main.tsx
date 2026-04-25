@@ -14,15 +14,29 @@ import "./index.css"
 import { routeTree } from "./routeTree.gen"
 
 OpenAPI.BASE = import.meta.env.VITE_API_URL
-OpenAPI.TOKEN = async () => {
-  return localStorage.getItem("access_token") || ""
-}
+// Auth lives in an httpOnly session cookie (D001 / MEM001 / MEM023). The browser
+// attaches it automatically once WITH_CREDENTIALS is set; we never read it from JS.
+OpenAPI.WITH_CREDENTIALS = true
+
+// Auth-public routes where a 401 on probe queries (e.g. ['currentUser']) is
+// the *expected* state and should not bounce the user back to /login — we are
+// already there.
+const PUBLIC_ROUTES = new Set([
+  "/login",
+  "/signup",
+  "/recover-password",
+  "/reset-password",
+])
 
 const handleApiError = (error: Error) => {
-  if (error instanceof ApiError && [401, 403].includes(error.status)) {
-    localStorage.removeItem("access_token")
-    window.location.href = "/login"
-  }
+  if (!(error instanceof ApiError)) return
+  if (![401, 403].includes(error.status)) return
+  if (PUBLIC_ROUTES.has(window.location.pathname)) return
+  // Cookies are httpOnly — there is no client-side token to clear. The
+  // backend's Set-Cookie on logout / expiry is the source of truth, so the
+  // redirect is the only action we take here.
+  console.warn(`auth_redirect reason=${error.status}`)
+  window.location.href = "/login"
 }
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -33,7 +47,7 @@ const queryClient = new QueryClient({
   }),
 })
 
-const router = createRouter({ routeTree })
+const router = createRouter({ routeTree, context: { queryClient } })
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router

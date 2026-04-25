@@ -1,11 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   createFileRoute,
+  isRedirect,
   Link as RouterLink,
   redirect,
 } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { UsersService } from "@/client"
 import { AuthLayout } from "@/components/Common/AuthLayout"
 import {
   Form,
@@ -18,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
-import useAuth, { isLoggedIn } from "@/hooks/useAuth"
+import useAuth from "@/hooks/useAuth"
 
 const formSchema = z
   .object({
@@ -41,12 +43,17 @@ type FormData = z.infer<typeof formSchema>
 
 export const Route = createFileRoute("/signup")({
   component: SignUp,
-  beforeLoad: async () => {
-    if (isLoggedIn()) {
-      throw redirect({
-        to: "/",
+  beforeLoad: async ({ context }) => {
+    try {
+      await context.queryClient.ensureQueryData({
+        queryKey: ["currentUser"],
+        queryFn: UsersService.readUserMe,
       })
+    } catch (err) {
+      if (isRedirect(err)) throw err
+      return
     }
+    throw redirect({ to: "/" })
   },
   head: () => ({
     meta: [

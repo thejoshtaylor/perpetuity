@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation } from "@tanstack/react-query"
 import {
   createFileRoute,
+  isRedirect,
   Link as RouterLink,
   redirect,
   useNavigate,
@@ -9,7 +10,7 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { LoginService } from "@/client"
+import { LoginService, UsersService } from "@/client"
 import { AuthLayout } from "@/components/Common/AuthLayout"
 import {
   Form,
@@ -21,7 +22,6 @@ import {
 } from "@/components/ui/form"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
-import { isLoggedIn } from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
 import { handleError } from "@/utils"
 
@@ -49,13 +49,20 @@ type FormData = z.infer<typeof formSchema>
 export const Route = createFileRoute("/reset-password")({
   component: ResetPassword,
   validateSearch: searchSchema,
-  beforeLoad: async ({ search }) => {
-    if (isLoggedIn()) {
-      throw redirect({ to: "/" })
-    }
+  beforeLoad: async ({ context, search }) => {
     if (!search.token) {
       throw redirect({ to: "/login" })
     }
+    try {
+      await context.queryClient.ensureQueryData({
+        queryKey: ["currentUser"],
+        queryFn: UsersService.readUserMe,
+      })
+    } catch (err) {
+      if (isRedirect(err)) throw err
+      return
+    }
+    throw redirect({ to: "/" })
   },
   head: () => ({
     meta: [

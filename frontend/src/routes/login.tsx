@@ -1,13 +1,14 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   createFileRoute,
+  isRedirect,
   Link as RouterLink,
   redirect,
 } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import type { Body_login_login_access_token as AccessToken } from "@/client"
+import { type LoginBody, UsersService } from "@/client"
 import { AuthLayout } from "@/components/Common/AuthLayout"
 import {
   Form,
@@ -20,26 +21,33 @@ import {
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
-import useAuth, { isLoggedIn } from "@/hooks/useAuth"
+import useAuth from "@/hooks/useAuth"
 
 const formSchema = z.object({
-  username: z.email(),
+  email: z.email(),
   password: z
     .string()
     .min(1, { message: "Password is required" })
     .min(8, { message: "Password must be at least 8 characters" }),
-}) satisfies z.ZodType<AccessToken>
+}) satisfies z.ZodType<LoginBody>
 
 type FormData = z.infer<typeof formSchema>
 
 export const Route = createFileRoute("/login")({
   component: Login,
-  beforeLoad: async () => {
-    if (isLoggedIn()) {
-      throw redirect({
-        to: "/",
+  beforeLoad: async ({ context }) => {
+    try {
+      await context.queryClient.ensureQueryData({
+        queryKey: ["currentUser"],
+        queryFn: UsersService.readUserMe,
       })
+    } catch (err) {
+      // 401 is the expected logged-out case — stay on /login.
+      if (isRedirect(err)) throw err
+      return
     }
+    // currentUser fetch succeeded — already authenticated, bounce to /.
+    throw redirect({ to: "/" })
   },
   head: () => ({
     meta: [
@@ -57,7 +65,7 @@ function Login() {
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
     },
   })
@@ -81,7 +89,7 @@ function Login() {
           <div className="grid gap-4">
             <FormField
               control={form.control}
-              name="username"
+              name="email"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Email</FormLabel>

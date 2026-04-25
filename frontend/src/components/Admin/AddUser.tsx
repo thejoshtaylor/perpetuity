@@ -4,7 +4,7 @@ import { Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
+import type { UserRole } from "@/client"
 import { type UserCreate, UsersService } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -86,7 +86,11 @@ const AddUser = () => {
   })
 
   const onSubmit = (data: FormData) => {
-    mutation.mutate(data)
+    // Boundary conversion: the checkbox UI stays a boolean for friendliness;
+    // the wire format (UserCreate) wants a role enum.
+    const { is_superuser, confirm_password: _confirm_password, ...rest } = data
+    const role: UserRole = is_superuser ? "system_admin" : "user"
+    mutation.mutate({ ...rest, role })
   }
 
   return (
