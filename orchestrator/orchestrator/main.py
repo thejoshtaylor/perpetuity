@@ -33,6 +33,7 @@ from orchestrator.errors import (
 )
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
 from orchestrator.routes_sessions import router as sessions_router
+from orchestrator.routes_ws import router as ws_router
 from orchestrator.sessions import VolumeMountFailed
 
 logger = logging.getLogger("orchestrator")
@@ -208,6 +209,7 @@ async def _volume_mount_failed_handler(
 
 
 app.include_router(sessions_router)
+app.include_router(ws_router)
 
 
 @app.get("/v1/health")
