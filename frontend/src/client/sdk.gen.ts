@@ -3,7 +3,93 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+
+export class AdminService {
+    /**
+     * Read All Teams
+     * List every team in the system, paginated, ordered by created_at DESC.
+     *
+     * Returns `{data: [TeamPublic, ...], count: int}` where `count` is the
+     * unfiltered total (so the FE can render Prev/Next correctly even with
+     * skip/limit applied). Mirrors the count+skip/limit pattern in
+     * `users.py::read_users`.
+     * @param data The data for the request.
+     * @param data.skip
+     * @param data.limit
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static readAllTeams(data: AdminReadAllTeamsData = {}): CancelablePromise<AdminReadAllTeamsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/admin/teams',
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Admin Team Members
+     * Return the roster of any team — does NOT require caller membership.
+     *
+     * - 404 if team missing.
+     * - 200 `{data: [{user_id, email, full_name, role}, ...], count: int}`.
+     *
+     * Note: deliberately does not call `_assert_caller_is_team_member` from
+     * teams.py — system admin must be able to inspect teams they aren't on.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns TeamMembersPublic Successful Response
+     * @throws ApiError
+     */
+    public static readAdminTeamMembers(data: AdminReadAdminTeamMembersData): CancelablePromise<AdminReadAdminTeamMembersResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/admin/teams/{team_id}/members',
+            path: {
+                team_id: data.teamId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Promote System Admin
+     * Promote a user to UserRole.system_admin. Idempotent.
+     *
+     * - 404 if target user does not exist.
+     * - 200 with the (possibly unchanged) UserPublic on success.
+     * - If the target is already system_admin, no DB write is performed and
+     * the log line records `already_admin=true`.
+     *
+     * Demotion (system_admin → user) is intentionally not exposed — out of
+     * scope for S05. A future slice can add it with last-admin guards.
+     * @param data The data for the request.
+     * @param data.userId
+     * @returns UserPublic Successful Response
+     * @throws ApiError
+     */
+    public static promoteSystemAdmin(data: AdminPromoteSystemAdminData): CancelablePromise<AdminPromoteSystemAdminResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/admin/users/{user_id}/promote-system-admin',
+            path: {
+                user_id: data.userId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
 
 export class AuthService {
     /**

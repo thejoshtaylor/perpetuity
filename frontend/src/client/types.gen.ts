@@ -143,6 +143,27 @@ export type ValidationError = {
     };
 };
 
+export type AdminReadAllTeamsData = {
+    limit?: number;
+    skip?: number;
+};
+
+export type AdminReadAllTeamsResponse = ({
+    [key: string]: unknown;
+});
+
+export type AdminReadAdminTeamMembersData = {
+    teamId: string;
+};
+
+export type AdminReadAdminTeamMembersResponse = (TeamMembersPublic);
+
+export type AdminPromoteSystemAdminData = {
+    userId: string;
+};
+
+export type AdminPromoteSystemAdminResponse = (UserPublic);
+
 export type AuthSignupData = {
     requestBody: SignupBody;
 };
