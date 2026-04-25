@@ -55,6 +55,7 @@ from aiodocker.exceptions import DockerError
 from fastapi import APIRouter
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
+from orchestrator.attach_map import get_attach_map
 from orchestrator.auth import authenticate_websocket
 from orchestrator.errors import RedisUnavailable
 from orchestrator.protocol import (
@@ -224,205 +225,237 @@ async def session_stream(websocket: WebSocket, session_id: str) -> None:
     assert stream is not None
     assert exec_inst is not None
 
-    # ----- pump tasks ----------------------------------------------------
-    # Two coroutines race: whichever finishes first cancels the other and
-    # carries forward the close reason / exit code.
-    pump_state: dict[str, Any] = {
-        "exit_code": None,
-        "exec_eof": False,
-        "exec_error": None,
-    }
+    # ----- register live attach (S04/T01) --------------------------------
+    # Bumped AFTER exec stream __aenter__ succeeded — a failed exec start
+    # (handled in the except branches above) must NOT leave a stale entry
+    # the reaper would treat as live. The matching unregister lives in
+    # the finally block at the bottom of this function so a mid-stream
+    # exception path still decrements.
+    attach_map = get_attach_map()
+    register_count = await attach_map.register(session_id)
+    logger.info(
+        "attach_registered session_id=%s count=%d",
+        session_id,
+        register_count,
+    )
 
-    async def _pump_exec_to_ws() -> None:
-        """Forward exec stdout chunks to the WS as `data` frames."""
-        try:
-            while True:
-                msg = await stream.read_out()
-                if msg is None:
-                    pump_state["exec_eof"] = True
-                    return
-                # `msg.data` is the raw bytes chunk. With tty=True there is
-                # no stdout/stderr multiplexing — both arrive on stream 1.
-                data_frame = make_data(bytes(msg.data))
-                if websocket.client_state != WebSocketState.CONNECTED:
-                    return
-                await websocket.send_text(encode_frame(data_frame))
-        except (WebSocketDisconnect, RuntimeError):
-            # WS closed under us — let the WS pump's exception path drive
-            # the close reason. We don't set exec_error here because the
-            # exec stream is healthy; the client just left.
-            return
-        except (DockerError, OSError, asyncio.IncompleteReadError) as exc:
-            pump_state["exec_error"] = f"{type(exc).__name__}:{exc}"
-            logger.warning(
-                "docker_exec_stream_error session_id=%s err=%s",
-                session_id,
-                type(exc).__name__,
-            )
-            return
+    try:
+        # ----- pump tasks ------------------------------------------------
+        # Two coroutines race: whichever finishes first cancels the other
+        # and carries forward the close reason / exit code.
+        pump_state: dict[str, Any] = {
+            "exit_code": None,
+            "exec_eof": False,
+            "exec_error": None,
+        }
 
-    async def _pump_ws_to_exec() -> None:
-        """Read client frames; route input/resize, ignore unknown."""
-        nonlocal detach_reason
-        try:
-            while True:
-                text = await websocket.receive_text()
-                try:
-                    frame = decode_frame(text)
-                except ValueError:
-                    logger.warning(
-                        "ws_malformed_frame session_id=%s", session_id
-                    )
-                    detach_reason = REASON_MALFORMED_FRAME
-                    await _safe_close(
-                        websocket,
-                        code=CLOSE_UNSUPPORTED_DATA,
-                        reason=REASON_MALFORMED_FRAME,
-                    )
-                    return
+        async def _pump_exec_to_ws() -> None:
+            """Forward exec stdout chunks to the WS as `data` frames."""
+            try:
+                while True:
+                    msg = await stream.read_out()
+                    if msg is None:
+                        pump_state["exec_eof"] = True
+                        return
+                    # `msg.data` is the raw bytes chunk. With tty=True
+                    # there is no stdout/stderr multiplexing — both
+                    # arrive on stream 1.
+                    data_frame = make_data(bytes(msg.data))
+                    if websocket.client_state != WebSocketState.CONNECTED:
+                        return
+                    await websocket.send_text(encode_frame(data_frame))
+            except (WebSocketDisconnect, RuntimeError):
+                # WS closed under us — let the WS pump's exception path
+                # drive the close reason. We don't set exec_error here
+                # because the exec stream is healthy; the client just
+                # left.
+                return
+            except (DockerError, OSError, asyncio.IncompleteReadError) as exc:
+                pump_state["exec_error"] = f"{type(exc).__name__}:{exc}"
+                logger.warning(
+                    "docker_exec_stream_error session_id=%s err=%s",
+                    session_id,
+                    type(exc).__name__,
+                )
+                return
 
-                ftype = frame.get("type")
-                if ftype == "input":
-                    raw_field = frame.get("bytes")
-                    if not isinstance(raw_field, str):
-                        logger.warning(
-                            "ws_malformed_input session_id=%s", session_id
-                        )
-                        continue
+        async def _pump_ws_to_exec() -> None:
+            """Read client frames; route input/resize, ignore unknown."""
+            nonlocal detach_reason
+            try:
+                while True:
+                    text = await websocket.receive_text()
                     try:
-                        raw = decode_bytes(raw_field)
+                        frame = decode_frame(text)
                     except ValueError:
                         logger.warning(
-                            "ws_malformed_input_b64 session_id=%s", session_id
+                            "ws_malformed_frame session_id=%s", session_id
                         )
-                        continue
-                    try:
-                        await stream.write_in(raw)
-                    except (DockerError, OSError, RuntimeError) as exc:
-                        pump_state["exec_error"] = (
-                            f"{type(exc).__name__}:{exc}"
-                        )
-                        logger.warning(
-                            "docker_exec_write_error session_id=%s err=%s",
-                            session_id,
-                            type(exc).__name__,
+                        detach_reason = REASON_MALFORMED_FRAME
+                        await _safe_close(
+                            websocket,
+                            code=CLOSE_UNSUPPORTED_DATA,
+                            reason=REASON_MALFORMED_FRAME,
                         )
                         return
-                    # Heartbeat: bump last_activity. Best-effort — a Redis
-                    # blip is non-fatal here; the next input frame will try
-                    # again. The reaper tolerates a missed heartbeat.
-                    try:
-                        await registry.update_last_activity(session_id)
-                    except RedisUnavailable:
+
+                    ftype = frame.get("type")
+                    if ftype == "input":
+                        raw_field = frame.get("bytes")
+                        if not isinstance(raw_field, str):
+                            logger.warning(
+                                "ws_malformed_input session_id=%s", session_id
+                            )
+                            continue
+                        try:
+                            raw = decode_bytes(raw_field)
+                        except ValueError:
+                            logger.warning(
+                                "ws_malformed_input_b64 session_id=%s",
+                                session_id,
+                            )
+                            continue
+                        try:
+                            await stream.write_in(raw)
+                        except (DockerError, OSError, RuntimeError) as exc:
+                            pump_state["exec_error"] = (
+                                f"{type(exc).__name__}:{exc}"
+                            )
+                            logger.warning(
+                                "docker_exec_write_error session_id=%s err=%s",
+                                session_id,
+                                type(exc).__name__,
+                            )
+                            return
+                        # Heartbeat: bump last_activity. Best-effort — a
+                        # Redis blip is non-fatal here; the next input
+                        # frame will try again. The reaper tolerates a
+                        # missed heartbeat.
+                        try:
+                            await registry.update_last_activity(session_id)
+                        except RedisUnavailable:
+                            logger.warning(
+                                "redis_unreachable op=heartbeat session_id=%s",
+                                session_id,
+                            )
+                    elif ftype == "resize":
+                        cols = frame.get("cols")
+                        rows = frame.get("rows")
+                        if not (
+                            isinstance(cols, int)
+                            and isinstance(rows, int)
+                            and 0 < cols <= 1000
+                            and 0 < rows <= 1000
+                        ):
+                            logger.warning(
+                                "ws_malformed_resize session_id=%s",
+                                session_id,
+                            )
+                            continue
+                        try:
+                            await resize_tmux_session(
+                                docker, container_id, session_id, cols, rows
+                            )
+                        except TmuxCommandFailed as exc:
+                            # Resize failures are non-fatal; log and
+                            # continue. If the underlying tmux session
+                            # disappeared the exec pump will EOF and
+                            # drive the normal close.
+                            logger.warning(
+                                "tmux_resize_failed session_id=%s reason=%s",
+                                session_id,
+                                exc.output.strip()[:120] if exc.output else "?",
+                            )
+                    else:
+                        # Unknown frame type — forward-compat: log,
+                        # ignore.
                         logger.warning(
-                            "redis_unreachable op=heartbeat session_id=%s",
+                            "ws_unknown_frame_type session_id=%s type=%r",
                             session_id,
+                            ftype,
                         )
-                elif ftype == "resize":
-                    cols = frame.get("cols")
-                    rows = frame.get("rows")
-                    if not (
-                        isinstance(cols, int)
-                        and isinstance(rows, int)
-                        and 0 < cols <= 1000
-                        and 0 < rows <= 1000
-                    ):
-                        logger.warning(
-                            "ws_malformed_resize session_id=%s", session_id
-                        )
-                        continue
-                    try:
-                        await resize_tmux_session(
-                            docker, container_id, session_id, cols, rows
-                        )
-                    except TmuxCommandFailed as exc:
-                        # Resize failures are non-fatal; log and continue.
-                        # If the underlying tmux session disappeared the
-                        # exec pump will EOF and drive the normal close.
-                        logger.warning(
-                            "tmux_resize_failed session_id=%s reason=%s",
-                            session_id,
-                            exc.output.strip()[:120] if exc.output else "?",
-                        )
-                else:
-                    # Unknown frame type — forward-compat: log, ignore.
-                    logger.warning(
-                        "ws_unknown_frame_type session_id=%s type=%r",
-                        session_id,
-                        ftype,
-                    )
-        except WebSocketDisconnect:
-            detach_reason = REASON_CLIENT_CLOSE
-            return
+            except WebSocketDisconnect:
+                detach_reason = REASON_CLIENT_CLOSE
+                return
 
-    exec_task = asyncio.create_task(_pump_exec_to_ws(), name="ws-exec-pump")
-    ws_task = asyncio.create_task(_pump_ws_to_exec(), name="ws-input-pump")
+        exec_task = asyncio.create_task(_pump_exec_to_ws(), name="ws-exec-pump")
+        ws_task = asyncio.create_task(_pump_ws_to_exec(), name="ws-input-pump")
 
-    done, pending = await asyncio.wait(
-        {exec_task, ws_task}, return_when=asyncio.FIRST_COMPLETED
-    )
-    for task in pending:
-        task.cancel()
-    # Drain cancelled tasks so we don't leak Task warnings on shutdown.
-    for task in pending:
+        done, pending = await asyncio.wait(
+            {exec_task, ws_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        # Drain cancelled tasks so we don't leak Task warnings on shutdown.
+        for task in pending:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+
+        # ----- determine close reason ------------------------------------
+        if pump_state["exec_eof"]:
+            # Shell exited (or tmux attach returned). Pull exit code via
+            # inspect; aiodocker leaves it in info["ExitCode"] or 0.
+            try:
+                info = await exec_inst.inspect()
+                exit_code = int(info.get("ExitCode") or 0)
+            except (DockerError, OSError) as exc:
+                logger.warning(
+                    "docker_exec_inspect_failed session_id=%s err=%s",
+                    session_id,
+                    type(exc).__name__,
+                )
+                exit_code = 0
+            detach_reason = REASON_EXEC_EOF
+            # Send the exit frame before closing; ignore disconnect errors.
+            try:
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(encode_frame(make_exit(exit_code)))
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+            await _safe_close(websocket, code=CLOSE_NORMAL, reason=REASON_EXEC_EOF)
+        elif pump_state["exec_error"] is not None:
+            await _safe_close(
+                websocket,
+                code=CLOSE_INTERNAL_ERROR,
+                reason=REASON_EXEC_STREAM_ERROR,
+            )
+        else:
+            # Client disconnected (most common path). The tmux session
+            # stays alive; only the exec stream gets closed.
+            await _safe_close(websocket, code=CLOSE_NORMAL, reason=detach_reason)
+
+        # ----- tear down the exec stream ---------------------------------
+        # Always close the stream — it owns an upgraded TCP socket. We
+        # do NOT kill the tmux session: that's D012's whole point.
         try:
-            await task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass
-
-    # ----- determine close reason ----------------------------------------
-    if pump_state["exec_eof"]:
-        # Shell exited (or tmux attach returned). Pull exit code via
-        # inspect; aiodocker leaves it in info["ExitCode"] or 0.
-        try:
-            info = await exec_inst.inspect()
-            exit_code = int(info.get("ExitCode") or 0)
-        except (DockerError, OSError) as exc:
+            await stream.__aexit__(None, None, None)
+        except Exception as exc:  # noqa: BLE001
+            # Best-effort cleanup; log and continue.
             logger.warning(
-                "docker_exec_inspect_failed session_id=%s err=%s",
+                "docker_exec_stream_close_error session_id=%s err=%s",
                 session_id,
                 type(exc).__name__,
             )
-            exit_code = 0
-        detach_reason = REASON_EXEC_EOF
-        # Send the exit frame before closing; ignore disconnect errors.
-        try:
-            if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.send_text(encode_frame(make_exit(exit_code)))
-        except (WebSocketDisconnect, RuntimeError):
-            pass
-        await _safe_close(websocket, code=CLOSE_NORMAL, reason=REASON_EXEC_EOF)
-    elif pump_state["exec_error"] is not None:
-        await _safe_close(
-            websocket,
-            code=CLOSE_INTERNAL_ERROR,
-            reason=REASON_EXEC_STREAM_ERROR,
-        )
-    else:
-        # Client disconnected (most common path). The tmux session stays
-        # alive; only the exec stream gets closed.
-        await _safe_close(websocket, code=CLOSE_NORMAL, reason=detach_reason)
 
-    # ----- tear down the exec stream -------------------------------------
-    # Always close the stream — it owns an upgraded TCP socket. We do NOT
-    # kill the tmux session: that's D012's whole point.
-    try:
-        await stream.__aexit__(None, None, None)
-    except Exception as exc:  # noqa: BLE001
-        # Best-effort cleanup; log and continue.
-        logger.warning(
-            "docker_exec_stream_close_error session_id=%s err=%s",
+        logger.info(
+            "session_detached session_id=%s container_id=%s reason=%s exit_code=%s",
             session_id,
-            type(exc).__name__,
+            container_id[:12],
+            detach_reason,
+            exit_code if exit_code is not None else "-",
         )
-
-    logger.info(
-        "session_detached session_id=%s container_id=%s reason=%s exit_code=%s",
-        session_id,
-        container_id[:12],
-        detach_reason,
-        exit_code if exit_code is not None else "-",
-    )
+    finally:
+        # Always decrement the live-attach refcount, even if a mid-stream
+        # exception (cancellation, unexpected raise) skipped the normal
+        # detach path. The reaper depends on this invariant.
+        unregister_count = await attach_map.unregister(session_id)
+        logger.info(
+            "attach_unregistered session_id=%s count=%d",
+            session_id,
+            unregister_count,
+        )
 
 
 async def _safe_close(
