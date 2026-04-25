@@ -71,6 +71,14 @@ BACKEND_IMAGE = "backend:latest"
 WORKSPACE_IMAGE = "perpetuity/workspace:test"
 ORCH_DNS_ALIAS = "orchestrator"
 
+# M004/S01/T01: stable Fernet key for the e2e suite — same value as the
+# conftest's SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST so sibling backends and
+# the ephemeral orchestrator share the same Fernet key (sensitive rows
+# written by either side must round-trip). Test-only secret.
+SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST = (
+    "kfk5l7mPRFpBV7PzWJxYmO6LRRQAdZ4iGYZRG6xL0fY="
+)
+
 # The most-recent alembic revision the suite depends on. The backend
 # image bakes /app/backend/app/alembic/versions/ (MEM147), so a stale
 # image would fail at prestart with "Can't locate revision". The
@@ -226,6 +234,7 @@ def _boot_ephemeral_orchestrator_dual_key(
         "-e", f"WORKSPACE_IMAGE={WORKSPACE_IMAGE}",
         "-e", f"ORCHESTRATOR_API_KEY={key_current}",
         "-e", f"ORCHESTRATOR_API_KEY_PREVIOUS={key_previous}",
+        "-e", f"SYSTEM_SETTINGS_ENCRYPTION_KEY={SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST}",
         "-e", "REDIS_HOST=redis",
         "-e", f"REDIS_PASSWORD={redis_password}",
         "-e",
@@ -354,6 +363,7 @@ def _boot_sibling_backend(
         "-e", "ORCHESTRATOR_BASE_URL=http://orchestrator:8001",
         "-e", f"ORCHESTRATOR_API_KEY={api_key}",
         "-e", "ORCHESTRATOR_API_KEY_PREVIOUS=",
+        "-e", f"SYSTEM_SETTINGS_ENCRYPTION_KEY={SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST}",
         "-e", "EMAILS_FROM_EMAIL=noreply@example.com",
         "-e", "SMTP_HOST=",
         "-e", "SMTP_USER=",

@@ -40,6 +40,16 @@ ORCH_IMAGE = "orchestrator:latest"
 WORKSPACE_IMAGE = "perpetuity/workspace:test"
 BACKEND_IMAGE = "backend:latest"
 
+# M004/S01/T01: stable Fernet key for the e2e suite. Same value across
+# every sibling backend boot — sensitive system_settings rows written
+# by one test must remain decryptable by the next, and rotating the key
+# without re-encrypting every row breaks every read. This is a
+# test-only secret (not derived from any production key); the .env's
+# SYSTEM_SETTINGS_ENCRYPTION_KEY for local dev is independent.
+SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST = (
+    "kfk5l7mPRFpBV7PzWJxYmO6LRRQAdZ4iGYZRG6xL0fY="
+)
+
 # Repo root resolved from this file: backend/tests/integration/conftest.py
 REPO_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")
@@ -322,6 +332,7 @@ def backend_url(
         "-e", "ORCHESTRATOR_BASE_URL=http://orchestrator:8001",
         "-e", f"ORCHESTRATOR_API_KEY={api_key}",
         "-e", "ORCHESTRATOR_API_KEY_PREVIOUS=",
+        "-e", f"SYSTEM_SETTINGS_ENCRYPTION_KEY={SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST}",
         "-e", "EMAILS_FROM_EMAIL=noreply@example.com",
         "-e", "SMTP_HOST=",
         "-e", "SMTP_USER=",

@@ -128,6 +128,13 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD?Variable not set}
       - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
       - ORCHESTRATOR_API_KEY_PREVIOUS=${ORCHESTRATOR_API_KEY_PREVIOUS-}
+      # M004/S01: Fernet key for sensitive system_settings rows (GitHub
+      # App private key, webhook secret). MUST stay stable across
+      # restarts — rotating this without re-encrypting every sensitive
+      # row breaks every subsequent decrypt and surfaces as 503
+      # `system_settings_decrypt_failed`. Same value MUST be set on the
+      # backend service (read from the root .env once).
+      - SYSTEM_SETTINGS_ENCRYPTION_KEY=${SYSTEM_SETTINGS_ENCRYPTION_KEY?Variable not set}
       - WORKSPACE_IMAGE=${WORKSPACE_IMAGE-perpetuity/workspace:latest}
       # S02/T03: orchestrator owns the workspace_volume row lookup. Backend
       # owns the schema (s04 migration); the orchestrator only reads/inserts.
@@ -207,6 +214,10 @@ services:
       - SENTRY_DSN=${SENTRY_DSN}
       - ORCHESTRATOR_BASE_URL=${ORCHESTRATOR_BASE_URL-http://orchestrator:8001}
       - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
+      # M004/S01: Fernet key for sensitive system_settings rows. MUST
+      # match the orchestrator's value (rotating without re-encrypting
+      # every sensitive row breaks every read). See orchestrator service.
+      - SYSTEM_SETTINGS_ENCRYPTION_KEY=${SYSTEM_SETTINGS_ENCRYPTION_KEY?Variable not set}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
