@@ -70,6 +70,7 @@ keep-runtime-typing = true
 [tool.pytest.ini_options]
 markers = [
     "e2e: end-to-end tests that require the live docker-compose stack (M002+). Opt-in via `-m e2e`; auto-skip when docker is unreachable.",
+    "serial: tests that must run with -n 1 (mutate global state — system_settings, ephemeral orchestrator swap).",
 ]
 
 [tool.coverage.run]
