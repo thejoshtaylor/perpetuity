@@ -22,6 +22,7 @@ import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 import { Route as LayoutTeamsTeamIdRouteImport } from './routes/_layout/teams_.$teamId'
 import { Route as LayoutAdminTeamsRouteImport } from './routes/_layout/admin_.teams'
+import { Route as LayoutAdminTeamsTeamIdRouteImport } from './routes/_layout/admin.teams_.$teamId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -87,6 +88,11 @@ const LayoutAdminTeamsRoute = LayoutAdminTeamsRouteImport.update({
   path: '/admin/teams',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutAdminTeamsTeamIdRoute = LayoutAdminTeamsTeamIdRouteImport.update({
+  id: '/teams_/$teamId',
+  path: '/teams/$teamId',
+  getParentRoute: () => LayoutAdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
@@ -94,20 +100,21 @@ export interface FileRoutesByFullPath {
   '/recover-password': typeof RecoverPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
-  '/admin': typeof LayoutAdminRoute
+  '/admin': typeof LayoutAdminRouteWithChildren
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/admin/teams': typeof LayoutAdminTeamsRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/admin/teams/$teamId': typeof LayoutAdminTeamsTeamIdRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/recover-password': typeof RecoverPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
-  '/admin': typeof LayoutAdminRoute
+  '/admin': typeof LayoutAdminRouteWithChildren
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/admin/teams': typeof LayoutAdminTeamsRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/admin/teams/$teamId': typeof LayoutAdminTeamsTeamIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -123,7 +131,7 @@ export interface FileRoutesById {
   '/recover-password': typeof RecoverPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
-  '/_layout/admin': typeof LayoutAdminRoute
+  '/_layout/admin': typeof LayoutAdminRouteWithChildren
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/teams': typeof LayoutTeamsRoute
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/admin_/teams': typeof LayoutAdminTeamsRoute
   '/_layout/teams_/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/_layout/admin/teams_/$teamId': typeof LayoutAdminTeamsTeamIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/invite/$code'
     | '/admin/teams'
     | '/teams/$teamId'
+    | '/admin/teams/$teamId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin/teams'
     | '/teams/$teamId'
+    | '/admin/teams/$teamId'
   id:
     | '__root__'
     | '/_layout'
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '/_layout/'
     | '/_layout/admin_/teams'
     | '/_layout/teams_/$teamId'
+    | '/_layout/admin/teams_/$teamId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -280,11 +292,30 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminTeamsRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/admin/teams_/$teamId': {
+      id: '/_layout/admin/teams_/$teamId'
+      path: '/teams/$teamId'
+      fullPath: '/admin/teams/$teamId'
+      preLoaderRoute: typeof LayoutAdminTeamsTeamIdRouteImport
+      parentRoute: typeof LayoutAdminRoute
+    }
   }
 }
 
+interface LayoutAdminRouteChildren {
+  LayoutAdminTeamsTeamIdRoute: typeof LayoutAdminTeamsTeamIdRoute
+}
+
+const LayoutAdminRouteChildren: LayoutAdminRouteChildren = {
+  LayoutAdminTeamsTeamIdRoute: LayoutAdminTeamsTeamIdRoute,
+}
+
+const LayoutAdminRouteWithChildren = LayoutAdminRoute._addFileChildren(
+  LayoutAdminRouteChildren,
+)
+
 interface LayoutRouteChildren {
-  LayoutAdminRoute: typeof LayoutAdminRoute
+  LayoutAdminRoute: typeof LayoutAdminRouteWithChildren
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutTeamsRoute: typeof LayoutTeamsRoute
@@ -294,7 +325,7 @@ interface LayoutRouteChildren {
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
-  LayoutAdminRoute: LayoutAdminRoute,
+  LayoutAdminRoute: LayoutAdminRouteWithChildren,
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutTeamsRoute: LayoutTeamsRoute,
