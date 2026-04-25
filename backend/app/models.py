@@ -1,9 +1,11 @@
 import enum
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import EmailStr
-from sqlalchemy import DateTime, UniqueConstraint
+from sqlalchemy import Column, DateTime, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -199,6 +201,32 @@ class WorkspaceVolume(SQLModel, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+
+
+# System-wide admin-tunable settings (D015). Generic key/value store backing
+# the admin settings API. The canonical first key is
+# `workspace_volume_size_gb`, which the orchestrator looks up on each fresh
+# `create_volume` call to pick the new-volume cap. JSONB so future keys can
+# carry richer payloads; per-key validators in the API layer enforce shape.
+class SystemSetting(SQLModel, table=True):
+    __tablename__ = "system_settings"
+
+    key: str = Field(max_length=255, primary_key=True)
+    value: Any = Field(sa_column=Column(JSONB, nullable=False))
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class SystemSettingPublic(SQLModel):
+    key: str
+    value: Any
+    updated_at: datetime | None = None
+
+
+class SystemSettingPut(SQLModel):
+    value: Any
 
 
 class TeamInvitePublic(SQLModel):
