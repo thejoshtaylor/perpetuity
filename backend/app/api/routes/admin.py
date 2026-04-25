@@ -195,6 +195,7 @@ def promote_system_admin(
 
 
 WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
+IDLE_TIMEOUT_SECONDS_KEY = "idle_timeout_seconds"
 
 
 def _validate_workspace_volume_size_gb(value: Any) -> None:
@@ -223,8 +224,37 @@ def _validate_workspace_volume_size_gb(value: Any) -> None:
         )
 
 
+def _validate_idle_timeout_seconds(value: Any) -> None:
+    """Mirror the orchestrator's reaper resolver range (1..86400 seconds).
+
+    Same shape as the volume size validator — bool is rejected explicitly
+    so JSON `true` doesn't coerce to 1. The new value just biases the
+    next reaper tick; no partial-apply warnings are emitted because there
+    is no per-row state to reconcile (unlike workspace_volume_size_gb).
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": IDLE_TIMEOUT_SECONDS_KEY,
+                "reason": "must be int in 1..86400",
+            },
+        )
+    if not (1 <= value <= 86400):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": IDLE_TIMEOUT_SECONDS_KEY,
+                "reason": "must be int in 1..86400",
+            },
+        )
+
+
 _VALIDATORS: dict[str, Callable[[Any], None]] = {
     WORKSPACE_VOLUME_SIZE_GB_KEY: _validate_workspace_volume_size_gb,
+    IDLE_TIMEOUT_SECONDS_KEY: _validate_idle_timeout_seconds,
 }
 
 

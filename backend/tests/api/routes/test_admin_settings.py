@@ -25,6 +25,7 @@ ADMIN_SETTINGS_URL = f"{settings.API_V1_STR}/admin/settings"
 SIGNUP_URL = f"{settings.API_V1_STR}/auth/signup"
 
 WORKSPACE_VOLUME_SIZE_GB = "workspace_volume_size_gb"
+IDLE_TIMEOUT_SECONDS = "idle_timeout_seconds"
 
 
 @pytest.fixture(autouse=True)
@@ -417,3 +418,175 @@ def test_get_list_as_normal_user_returns_403(client: TestClient) -> None:
     _u_id, cookies_u = _signup(client)
     r = client.get(ADMIN_SETTINGS_URL, cookies=cookies_u)
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# PUT /admin/settings/{key} — idle_timeout_seconds (S04 / T02)
+# ---------------------------------------------------------------------------
+
+
+def test_put_idle_timeout_seconds_returns_200_no_warnings(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Happy path: PUT idle_timeout_seconds=120 returns 200 with empty warnings.
+
+    Unlike workspace_volume_size_gb, this key has NO partial-apply
+    warnings — the new value just biases the next reaper tick. Empty
+    `warnings` is the contract.
+    """
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": 120},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == IDLE_TIMEOUT_SECONDS
+    assert body["value"] == 120
+    assert body["warnings"] == []
+
+
+def test_put_idle_timeout_seconds_idempotent_logs_previous_value_present(
+    client: TestClient,
+    superuser_cookies: httpx.Cookies,
+    caplog,
+) -> None:
+    """Two PUTs with the same value: second logs previous_value_present=true."""
+    r1 = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": 120},
+        cookies=superuser_cookies,
+    )
+    assert r1.status_code == 200
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.admin"):
+        r2 = client.put(
+            f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+            json={"value": 120},
+            cookies=superuser_cookies,
+        )
+    assert r2.status_code == 200
+
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "system_setting_updated" in m
+        and f"key={IDLE_TIMEOUT_SECONDS}" in m
+        and "previous_value_present=true" in m
+        for m in msgs
+    ), msgs
+
+
+def test_put_idle_timeout_seconds_first_time_logs_previous_value_present_false(
+    client: TestClient,
+    superuser_cookies: httpx.Cookies,
+    caplog,
+) -> None:
+    """First-time PUT for idle_timeout_seconds logs previous_value_present=false."""
+    with caplog.at_level(logging.INFO, logger="app.api.routes.admin"):
+        r = client.put(
+            f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+            json={"value": 600},
+            cookies=superuser_cookies,
+        )
+    assert r.status_code == 200, r.text
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "system_setting_updated" in m
+        and f"key={IDLE_TIMEOUT_SECONDS}" in m
+        and "previous_value_present=false" in m
+        for m in msgs
+    ), msgs
+
+
+def test_put_idle_timeout_seconds_does_not_log_shrink_warnings(
+    client: TestClient,
+    superuser_cookies: httpx.Cookies,
+    caplog,
+) -> None:
+    """idle_timeout_seconds NEVER emits the shrink-warnings log line.
+
+    Only workspace_volume_size_gb has per-row state to reconcile; the
+    reaper key is stateless (the next tick reads the new value and
+    moves on).
+    """
+    with caplog.at_level(logging.INFO, logger="app.api.routes.admin"):
+        r = client.put(
+            f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+            json={"value": 30},
+            cookies=superuser_cookies,
+        )
+    assert r.status_code == 200
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert not any(
+        "system_setting_shrink_warnings_emitted" in m for m in msgs
+    ), msgs
+
+
+def test_put_idle_timeout_seconds_non_int_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": "five-minutes"},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == IDLE_TIMEOUT_SECONDS
+    assert "must be int in 1..86400" in detail["reason"]
+
+
+def test_put_idle_timeout_seconds_bool_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """JSON `true` MUST be rejected — bool is a subclass of int in Python.
+
+    Same pattern as the workspace_volume_size_gb validator.
+    """
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": True},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == IDLE_TIMEOUT_SECONDS
+
+
+def test_put_idle_timeout_seconds_zero_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 0 is below the 1..86400 range — would disable the reaper."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": 0},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+def test_put_idle_timeout_seconds_too_large_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 86401 exceeds the 24h cap."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": 86401},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+def test_put_idle_timeout_seconds_max_allowed_returns_200(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 86400 (exact max, 24h) is accepted."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{IDLE_TIMEOUT_SECONDS}",
+        json={"value": 86400},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["value"] == 86400

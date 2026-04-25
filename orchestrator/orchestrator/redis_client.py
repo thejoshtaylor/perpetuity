@@ -26,11 +26,13 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 import redis.asyncio as redis_async
 from redis.exceptions import ConnectionError as RedisConnectionError
-from redis.exceptions import RedisError, TimeoutError as RedisTimeoutError
+from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from orchestrator.config import settings
 from orchestrator.errors import RedisUnavailable
@@ -170,6 +172,62 @@ class RedisSessionRegistry:
         except RedisError as exc:
             logger.warning("redis_error op=delete_session reason=%s", type(exc).__name__)
             raise RedisUnavailable("redis error on delete_session") from exc
+
+    async def scan_session_keys(
+        self, *, count_hint: int = 100
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """Yield `(session_id, record)` for every `session:*` key in Redis.
+
+        Uses `SCAN MATCH session:*` (cursor-based, non-blocking) rather
+        than `KEYS session:*` because `KEYS` is O(N) and blocks the
+        single-threaded redis loop — production-hostile when the session
+        count grows. The reaper (S04) is the canonical consumer.
+
+        `count_hint` is forwarded to SCAN's COUNT argument as a per-batch
+        size hint; redis treats it as guidance only. 100 keeps each batch
+        small enough to stay under the 5s socket_timeout.
+
+        Stale-id handling: if a session_key surfaces in the SCAN cursor
+        but the value is missing by the time we GET it (raced with
+        delete_session), we silently skip the entry — the cursor is a
+        snapshot hint, not a transactional view.
+        """
+        try:
+            async for key in self._client.scan_iter(
+                match="session:*", count=count_hint
+            ):
+                # decode_responses=True on the client returns str, but a
+                # future bytes-mode swap would break this — guard.
+                key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+                if not key_str.startswith("session:"):
+                    continue
+                session_id = key_str[len("session:"):]
+                raw = await self._client.get(key_str)
+                if raw is None:
+                    # Raced with a delete; nothing to yield.
+                    continue
+                try:
+                    record = json.loads(raw)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "redis_record_corrupt session_id=%s reason=json_decode",
+                        session_id,
+                    )
+                    continue
+                yield session_id, record
+        except (RedisConnectionError, RedisTimeoutError, OSError) as exc:
+            logger.warning(
+                "redis_unreachable op=scan_session_keys reason=%s",
+                type(exc).__name__,
+            )
+            raise RedisUnavailable(
+                "redis unreachable on scan_session_keys"
+            ) from exc
+        except RedisError as exc:
+            logger.warning(
+                "redis_error op=scan_session_keys reason=%s", type(exc).__name__
+            )
+            raise RedisUnavailable("redis error on scan_session_keys") from exc
 
     async def list_sessions(self, user_id: str, team_id: str) -> list[dict[str, Any]]:
         """Return all session records owned by (user_id, team_id).

@@ -58,6 +58,14 @@ _WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
 _WORKSPACE_VOLUME_SIZE_GB_MIN = 1
 _WORKSPACE_VOLUME_SIZE_GB_MAX = 256
 
+# Mirrors the backend admin API's idle_timeout_seconds validator. A
+# transiently-invalid system_settings row falls back to the boot-time
+# default rather than honoring a bad value (same shape as the volume
+# size cap above).
+_IDLE_TIMEOUT_SECONDS_KEY = "idle_timeout_seconds"
+_IDLE_TIMEOUT_SECONDS_MIN = 1
+_IDLE_TIMEOUT_SECONDS_MAX = 86400
+
 
 class VolumeRecord(NamedTuple):
     """Subset of the workspace_volume row the orchestrator actually uses.
@@ -321,6 +329,86 @@ async def _resolve_default_size_gb(pool: asyncpg.Pool) -> int:
     return value
 
 
+async def _resolve_idle_timeout_seconds(pool: asyncpg.Pool) -> int:
+    """Return the live idle_timeout_seconds from system_settings, falling
+    back to settings.idle_timeout_seconds on miss/invalid/error.
+
+    Mirrors `_resolve_default_size_gb` exactly — same SELECT shape, same
+    JSONB-as-text parse, same bool-rejection, same range gate, same
+    fallback-on-error discipline. The reaper (S04) calls this once per
+    tick so a fresh PUT to the admin API biases the very next reap pass
+    without a redeploy.
+
+    Range is [1, 86400] seconds (1s..24h). The lower bound prevents an
+    operator typo (e.g. 0) from disabling the reaper; the upper bound
+    keeps a stale-row "1e9 seconds" from effectively disabling it via
+    overflow into "never expire".
+
+    Logs WARNING `system_settings_lookup_failed key=idle_timeout_seconds
+    reason=<class>` on any non-happy path and INFO
+    `idle_timeout_seconds_resolved source=<system_settings|fallback>
+    value=<n>` on every call so each reaper tick announces the value it
+    is working from.
+    """
+    fallback = settings.idle_timeout_seconds
+    sql = "SELECT value FROM system_settings WHERE key = $1"
+    try:
+        async with pool.acquire() as conn:
+            raw = await conn.fetchval(sql, _IDLE_TIMEOUT_SECONDS_KEY)
+    except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _IDLE_TIMEOUT_SECONDS_KEY,
+            type(exc).__name__,
+        )
+        logger.info(
+            "idle_timeout_seconds_resolved source=fallback value=%d",
+            fallback,
+        )
+        return fallback
+
+    if raw is None:
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _IDLE_TIMEOUT_SECONDS_KEY,
+            "RowMissing",
+        )
+        logger.info(
+            "idle_timeout_seconds_resolved source=fallback value=%d",
+            fallback,
+        )
+        return fallback
+
+    try:
+        value: object = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        value = None
+
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not (
+            _IDLE_TIMEOUT_SECONDS_MIN <= value <= _IDLE_TIMEOUT_SECONDS_MAX
+        )
+    ):
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _IDLE_TIMEOUT_SECONDS_KEY,
+            "InvalidValue",
+        )
+        logger.info(
+            "idle_timeout_seconds_resolved source=fallback value=%d",
+            fallback,
+        )
+        return fallback
+
+    logger.info(
+        "idle_timeout_seconds_resolved source=system_settings value=%d",
+        value,
+    )
+    return value
+
+
 async def ensure_volume_for(
     pool: asyncpg.Pool,
     user_id: str,
@@ -508,4 +596,5 @@ __all__ = [
     "set_pool",
     "get_pool",
     "_resolve_default_size_gb",
+    "_resolve_idle_timeout_seconds",
 ]

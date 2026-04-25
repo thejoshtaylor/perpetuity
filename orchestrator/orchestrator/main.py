@@ -33,6 +33,7 @@ from orchestrator.errors import (
     VolumeProvisionFailed,
     WorkspaceVolumeStoreUnavailable,
 )
+from orchestrator.reaper import start_reaper, stop_reaper
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
 from orchestrator.routes_sessions import router as sessions_router
 from orchestrator.routes_ws import router as ws_router
@@ -224,10 +225,25 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         set_pool(None)
     app.state.pg = pg_pool
 
+    # Background idle reaper (S04/T02). The task owns its own asyncio.Task
+    # handle stored on app.state so the lifespan teardown can cancel+await
+    # before the Redis/pg/docker handles close — otherwise pytest leaks
+    # `Task was destroyed but it is pending` warnings on every test that
+    # boots the orchestrator. The reaper is a structural no-op when
+    # `app.state.docker is None` (test path with SKIP_IMAGE_PULL_ON_BOOT=1)
+    # so we always start it; the loop logs `reaper_tick_skipped` for those.
+    app.state.reaper_task = start_reaper(app)
+
     logger.info("orchestrator_ready image_present=%s", _health["image_present"])
     try:
         yield
     finally:
+        # Stop the reaper FIRST, before the Redis/pg/docker handles close —
+        # the reaper's loop reads all three; tearing them out from under
+        # an in-flight tick would surface as `reaper_tick_failed` warnings
+        # on every shutdown. The 5s budget covers the worst-case in-flight
+        # `docker exec` for the kill_tmux_session call.
+        await stop_reaper(getattr(app.state, "reaper_task", None))
         await registry.close()
         set_registry(None)
         await close_pool(pg_pool)
