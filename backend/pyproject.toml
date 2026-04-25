@@ -67,6 +67,11 @@ ignore = [
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
 
+[tool.pytest.ini_options]
+markers = [
+    "e2e: end-to-end tests that require the live docker-compose stack (M002+). Opt-in via `-m e2e`; auto-skip when docker is unreachable.",
+]
+
 [tool.coverage.run]
 source = ["app"]
 dynamic_context = "test_function"
