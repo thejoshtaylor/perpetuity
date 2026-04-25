@@ -7,10 +7,12 @@ ENV UV_LINK_MODE=copy
 # uv binary
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
 
-# `capsh` (used by the verification step that confirms cap_sys_admin is granted)
-# and `curl` (used by the compose healthcheck against /v1/health).
+# `capsh` (used by the verification step that confirms cap_sys_admin is granted),
+# `curl` (used by the compose healthcheck against /v1/health), and `e2fsprogs`
+# which provides mkfs.ext4 for S02 loopback volume provisioning. losetup/mount/
+# umount come from util-linux which is already present in python:3.12-slim.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl libcap2-bin \
+    && apt-get install -y --no-install-recommends curl libcap2-bin e2fsprogs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

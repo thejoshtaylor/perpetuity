@@ -39,3 +39,22 @@ class ImagePullFailed(OrchestratorError):
 
 class Unauthorized(OrchestratorError):
     """Shared-secret mismatch on HTTP. Maps to 401."""
+
+
+class VolumeProvisionFailed(OrchestratorError):
+    """Loopback-ext4 volume provisioning failed.
+
+    `step` pins the failing subprocess so the next agent can re-run that
+    exact command by hand from inside the orchestrator container. `reason`
+    is the first line of stderr (or "timeout" / "unparseable_output" for
+    the well-known non-stderr cases) — never the full stderr, since
+    `losetup -a` can leak neighbor volumes' uuid-keyed paths.
+
+    Mapped to 500 by the exception handler T03 registers in `main.py`:
+    `{detail: "volume_provision_failed", step, reason}`.
+    """
+
+    def __init__(self, reason: str, step: str) -> None:
+        super().__init__(f"{step}:{reason}")
+        self.reason = reason
+        self.step = step
