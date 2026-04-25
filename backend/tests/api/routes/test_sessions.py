@@ -638,3 +638,325 @@ def test_logs_emit_uuid_only_no_email_or_full_name(
     assert email not in captured, captured
     assert sentinel not in captured, captured
     assert str(user_id) in captured, captured
+
+
+# ----- T03: GET /sessions/{sid}/scrollback unit tests -------------------
+#
+# These exercise the new scrollback proxy in isolation by monkeypatching
+# `httpx.AsyncClient` inside `app.api.routes.sessions` so no real
+# orchestrator is needed. The S04/T04 integration test covers the
+# end-to-end real-orchestrator path.
+#
+# The fake client lets each test script the orchestrator's responses for
+# the GET /v1/sessions/by-id/<sid> lookup and the POST
+# /v1/sessions/<sid>/scrollback fetch separately.
+
+
+class _FakeResponse:
+    def __init__(
+        self,
+        status_code: int,
+        json_body: object | None = None,
+        request: httpx.Request | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self._json = json_body
+        self.request = request or httpx.Request("GET", "http://fake")
+
+    def json(self) -> object:
+        return self._json
+
+
+class _FakeAsyncClient:
+    """Stub for httpx.AsyncClient used by the scrollback proxy.
+
+    `route_map` keys are (method, endswith-suffix) tuples; values are
+    either a `_FakeResponse` to return or an `Exception` instance to
+    raise. Order of insertion does not matter — we match by suffix so
+    tests don't have to spell out the full ORCHESTRATOR_BASE_URL.
+    """
+
+    last_calls: list[tuple[str, str]] = []
+
+    def __init__(
+        self,
+        route_map: dict[tuple[str, str], object],
+    ) -> None:
+        self._routes = route_map
+
+    async def __aenter__(self) -> _FakeAsyncClient:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def _resolve(self, method: str, url: str) -> object:
+        type(self).last_calls.append((method, url))
+        for (m, suffix), handler in self._routes.items():
+            if m == method and url.endswith(suffix):
+                return handler
+        raise AssertionError(
+            f"FakeAsyncClient: no route registered for {method} {url}; "
+            f"have {list(self._routes.keys())}"
+        )
+
+    async def get(
+        self, url: str, *, headers: dict[str, str] | None = None, **_: object
+    ) -> _FakeResponse:
+        handler = self._resolve("GET", url)
+        if isinstance(handler, Exception):
+            raise handler
+        assert isinstance(handler, _FakeResponse)
+        return handler
+
+    async def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        json: object | None = None,
+        **_: object,
+    ) -> _FakeResponse:
+        handler = self._resolve("POST", url)
+        if isinstance(handler, Exception):
+            raise handler
+        assert isinstance(handler, _FakeResponse)
+        return handler
+
+
+def _install_fake_orch(
+    monkeypatch: pytest.MonkeyPatch,
+    routes: dict[tuple[str, str], object],
+) -> type[_FakeAsyncClient]:
+    """Patch `httpx.AsyncClient` *as imported by sessions.py* with our fake.
+
+    Returns the class so tests can introspect `last_calls` if needed.
+    """
+    import app.api.routes.sessions as sessions_mod
+
+    _FakeAsyncClient.last_calls = []
+
+    def _factory(*_args: object, **_kwargs: object) -> _FakeAsyncClient:
+        return _FakeAsyncClient(routes)
+
+    monkeypatch.setattr(sessions_mod.httpx, "AsyncClient", _factory)
+    return _FakeAsyncClient
+
+
+def _scrollback_url(session_id: str) -> str:
+    return f"{settings.API_V1_STR}/sessions/{session_id}/scrollback"
+
+
+def _login_user(client: TestClient) -> tuple[uuid.UUID, httpx.Cookies]:
+    """Sign up + log in a fresh user; returns (user_id, detached cookie jar).
+
+    Mirrors the `_signup_user` helper above but does not require the
+    orchestrator fixture (these tests stub the orchestrator).
+    """
+    email = random_email()
+    password = random_lower_string()
+    client.cookies.clear()
+    r = client.post(
+        f"{settings.API_V1_STR}/auth/signup",
+        json={"email": email, "password": password},
+    )
+    assert r.status_code == 200, r.text
+    user_id = uuid.UUID(r.json()["id"])
+    cookies = login_cookie_headers(client=client, email=email, password=password)
+    return user_id, cookies
+
+
+def test_scrollback_owner_returns_200_with_orchestrator_text(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_id, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): _FakeResponse(
+            200, {"session_id": sid, "user_id": str(user_id)}
+        ),
+        ("POST", f"/v1/sessions/{sid}/scrollback"): _FakeResponse(
+            200, {"scrollback": "hello\nworld\n"}
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    r = client.get(_scrollback_url(sid), cookies=cookies)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body == {"session_id": sid, "scrollback": "hello\nworld\n"}
+
+
+def test_scrollback_owner_with_empty_scrollback_returns_200_empty_string(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_id, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): _FakeResponse(
+            200, {"session_id": sid, "user_id": str(user_id)}
+        ),
+        ("POST", f"/v1/sessions/{sid}/scrollback"): _FakeResponse(
+            200, {"scrollback": ""}
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    r = client.get(_scrollback_url(sid), cookies=cookies)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"session_id": sid, "scrollback": ""}
+
+
+def test_scrollback_non_owner_returns_404_session_not_found(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Caller authenticated, session exists, but owned by another user."""
+    _, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+    other_user_id = uuid.uuid4()
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): _FakeResponse(
+            200, {"session_id": sid, "user_id": str(other_user_id)}
+        ),
+        # The scrollback POST must NOT be reached when ownership fails.
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    r = client.get(_scrollback_url(sid), cookies=cookies)
+    assert r.status_code == 404, r.text
+    assert r.json() == {"detail": "Session not found"}
+
+
+def test_scrollback_missing_session_returns_404_byte_equal_to_non_owner(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No-enumeration: missing-session 404 body matches non-owner 404 body byte-for-byte."""
+    _, cookies = _login_user(client)
+    sid_missing = str(uuid.uuid4())
+    sid_other = str(uuid.uuid4())
+    other_user_id = uuid.uuid4()
+
+    # Case 1: missing record (orch returns 404)
+    routes_missing: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid_missing}"): _FakeResponse(404, None),
+    }
+    _install_fake_orch(monkeypatch, routes_missing)
+    r_missing = client.get(_scrollback_url(sid_missing), cookies=cookies)
+    assert r_missing.status_code == 404, r_missing.text
+    body_missing = r_missing.content
+
+    # Case 2: non-owner (orch returns record owned by someone else)
+    routes_other: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid_other}"): _FakeResponse(
+            200, {"session_id": sid_other, "user_id": str(other_user_id)}
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes_other)
+    r_other = client.get(_scrollback_url(sid_other), cookies=cookies)
+    assert r_other.status_code == 404, r_other.text
+    body_other = r_other.content
+
+    # The two response bodies must be byte-equal — the caller cannot
+    # distinguish "doesn't exist" from "exists but isn't yours".
+    assert body_missing == body_other, (body_missing, body_other)
+
+
+def test_scrollback_unauthenticated_returns_401(client: TestClient) -> None:
+    sid = str(uuid.uuid4())
+    client.cookies.clear()
+    r = client.get(_scrollback_url(sid))
+    assert r.status_code == 401, r.text
+
+
+def test_scrollback_orchestrator_unreachable_on_lookup_returns_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): httpx.ConnectError(
+            "boom", request=httpx.Request("GET", "http://orch/x")
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    r = client.get(_scrollback_url(sid), cookies=cookies)
+    assert r.status_code == 503, r.text
+    assert r.json() == {"detail": "orchestrator_unavailable"}
+
+
+def test_scrollback_orchestrator_unreachable_on_fetch_returns_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lookup succeeds (and proves ownership), but the scrollback fetch fails."""
+    user_id, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): _FakeResponse(
+            200, {"session_id": sid, "user_id": str(user_id)}
+        ),
+        ("POST", f"/v1/sessions/{sid}/scrollback"): httpx.ReadTimeout(
+            "slow", request=httpx.Request("POST", "http://orch/x")
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    r = client.get(_scrollback_url(sid), cookies=cookies)
+    assert r.status_code == 503, r.text
+    assert r.json() == {"detail": "orchestrator_unavailable"}
+
+
+def test_scrollback_orchestrator_response_missing_scrollback_key_returns_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Schema-drift safety net: missing `scrollback` key → 503, not 500."""
+    user_id, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): _FakeResponse(
+            200, {"session_id": sid, "user_id": str(user_id)}
+        ),
+        ("POST", f"/v1/sessions/{sid}/scrollback"): _FakeResponse(
+            200, {"unexpected": "shape"}
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    r = client.get(_scrollback_url(sid), cookies=cookies)
+    assert r.status_code == 503, r.text
+    assert r.json() == {"detail": "orchestrator_unavailable"}
+
+
+def test_scrollback_logs_bytes_only_not_content(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """Observability rule: log byte length, never the scrollback text."""
+    import logging as _logging
+
+    user_id, cookies = _login_user(client)
+    sid = str(uuid.uuid4())
+    secret = "SUPER-SECRET-API-KEY-do-not-log-me"
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/sessions/by-id/{sid}"): _FakeResponse(
+            200, {"session_id": sid, "user_id": str(user_id)}
+        ),
+        ("POST", f"/v1/sessions/{sid}/scrollback"): _FakeResponse(
+            200, {"scrollback": secret}
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    with caplog.at_level(_logging.INFO, logger="app.api.routes.sessions"):
+        r = client.get(_scrollback_url(sid), cookies=cookies)
+        assert r.status_code == 200, r.text
+
+    captured = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert secret not in captured, captured
+    assert "session_scrollback_proxied" in captured, captured
+    assert f"bytes={len(secret.encode('utf-8'))}" in captured, captured

@@ -287,6 +287,67 @@ async def delete_session(
     return {"session_id": sid_str, "deleted": True}
 
 
+@router.get("/sessions/{session_id}/scrollback")
+async def get_session_scrollback(
+    *, current_user: CurrentUser, session_id: uuid.UUID
+) -> dict[str, Any]:
+    """Fetch the current tmux scrollback for a session the caller owns.
+
+    Backend exposes this as GET (it is a read in the public API surface);
+    the orchestrator endpoint stays POST per S01 plan to keep the locked
+    frame-protocol stable. The asymmetry is intentional — the WS attach
+    frame is the only place that base64-encodes scrollback; this proxy
+    returns the raw UTF-8 string the orchestrator yielded.
+
+    Per the no-enumeration rule (MEM113/MEM123): a missing record AND a
+    record owned by another user both return 404 with an identical body.
+    Orchestrator unreachable on either the lookup or the scrollback fetch
+    surfaces as 503.
+    """
+    sid_str = str(session_id)
+    try:
+        record = await _orch_get_session_record(sid_str)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        raise _orch_unavailable_503("orchestrator_unavailable")
+    except httpx.HTTPStatusError:
+        raise _orch_unavailable_503("orchestrator_lookup_failed")
+
+    if record is None or str(record.get("user_id")) != str(current_user.id):
+        # No-enumeration: identical body for "missing" and "not yours".
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            r = await c.post(
+                f"{base}/v1/sessions/{sid_str}/scrollback",
+                headers=_orch_headers(),
+            )
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        raise _orch_unavailable_503("orchestrator_unavailable")
+
+    if r.status_code != 200:
+        raise _orch_unavailable_503(
+            f"orchestrator_status_{r.status_code}"
+        )
+    body = r.json()
+    if not isinstance(body, dict) or "scrollback" not in body:
+        # Schema drift on the orchestrator side — surface as 503 instead of
+        # crashing with KeyError so the user sees a known error shape.
+        raise _orch_unavailable_503("orchestrator_unavailable")
+    scrollback = body["scrollback"]
+    if not isinstance(scrollback, str):
+        raise _orch_unavailable_503("orchestrator_unavailable")
+
+    logger.info(
+        "session_scrollback_proxied session_id=%s user_id=%s bytes=%d",
+        session_id,
+        current_user.id,
+        len(scrollback.encode("utf-8")),
+    )
+    return {"session_id": sid_str, "scrollback": scrollback}
+
+
 # ----- WebSocket bridge ---------------------------------------------------
 
 
