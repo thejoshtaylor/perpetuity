@@ -20,4 +20,9 @@ async def test_health_returns_ok() -> None:
         response = await client.get("/v1/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    # T02: image_present is reported alongside. Unit suite skips the boot
+    # pull (SKIP_IMAGE_PULL_ON_BOOT=1), so image_present is False here —
+    # integration tests assert True against the live stack.
+    assert "image_present" in body
