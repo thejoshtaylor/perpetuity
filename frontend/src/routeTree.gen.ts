@@ -21,6 +21,7 @@ import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 import { Route as LayoutTeamsTeamIdRouteImport } from './routes/_layout/teams_.$teamId'
+import { Route as LayoutAdminTeamsRouteImport } from './routes/_layout/admin_.teams'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -81,6 +82,11 @@ const LayoutTeamsTeamIdRoute = LayoutTeamsTeamIdRouteImport.update({
   path: '/teams/$teamId',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutAdminTeamsRoute = LayoutAdminTeamsRouteImport.update({
+  id: '/admin_/teams',
+  path: '/admin/teams',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
+  '/admin/teams': typeof LayoutAdminTeamsRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
 }
 export interface FileRoutesByTo {
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/': typeof LayoutIndexRoute
+  '/admin/teams': typeof LayoutAdminTeamsRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
 }
 export interface FileRoutesById {
@@ -121,6 +129,7 @@ export interface FileRoutesById {
   '/_layout/teams': typeof LayoutTeamsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/_layout/': typeof LayoutIndexRoute
+  '/_layout/admin_/teams': typeof LayoutAdminTeamsRoute
   '/_layout/teams_/$teamId': typeof LayoutTeamsTeamIdRoute
 }
 export interface FileRouteTypes {
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/teams'
     | '/invite/$code'
+    | '/admin/teams'
     | '/teams/$teamId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/teams'
     | '/invite/$code'
     | '/'
+    | '/admin/teams'
     | '/teams/$teamId'
   id:
     | '__root__'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/_layout/teams'
     | '/invite/$code'
     | '/_layout/'
+    | '/_layout/admin_/teams'
     | '/_layout/teams_/$teamId'
   fileRoutesById: FileRoutesById
 }
@@ -261,6 +273,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutTeamsTeamIdRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/admin_/teams': {
+      id: '/_layout/admin_/teams'
+      path: '/admin/teams'
+      fullPath: '/admin/teams'
+      preLoaderRoute: typeof LayoutAdminTeamsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
   }
 }
 
@@ -270,6 +289,7 @@ interface LayoutRouteChildren {
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutTeamsRoute: typeof LayoutTeamsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
+  LayoutAdminTeamsRoute: typeof LayoutAdminTeamsRoute
   LayoutTeamsTeamIdRoute: typeof LayoutTeamsTeamIdRoute
 }
 
@@ -279,6 +299,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutTeamsRoute: LayoutTeamsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
+  LayoutAdminTeamsRoute: LayoutAdminTeamsRoute,
   LayoutTeamsTeamIdRoute: LayoutTeamsTeamIdRoute,
 }
 

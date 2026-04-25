@@ -1,4 +1,4 @@
-import { Briefcase, Users } from "lucide-react"
+import { Briefcase, Shield, Users } from "lucide-react"
 
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
@@ -22,7 +22,11 @@ export function AppSidebar() {
 
   const items =
     currentUser?.role === "system_admin"
-      ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
+      ? [
+          ...baseItems,
+          { icon: Users, title: "Admin", path: "/admin" },
+          { icon: Shield, title: "All Teams", path: "/admin/teams" },
+        ]
       : baseItems
 
   return (
