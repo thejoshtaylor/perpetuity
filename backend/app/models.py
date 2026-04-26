@@ -4,7 +4,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import EmailStr
-from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -349,6 +356,138 @@ class TeamMirrorPatch(SQLModel):
     """PATCH body for /api/v1/teams/{id}/mirror — only `always_on` toggles today."""
 
     always_on: bool
+
+
+# Per-team GitHub-linked project (M004/S04). One row per (team, project name).
+# `installation_id` references `github_app_installations.installation_id`
+# (BIGINT) — RESTRICT so an admin cannot silently orphan projects by deleting
+# the install row first. `last_push_status`/`last_push_error` are the
+# auto-push outcome surface; populated by the orchestrator's auto-push
+# executor in T04 — NULL between pushes / before the first push.
+class Project(SQLModel, table=True):
+    __tablename__ = "projects"
+    __table_args__ = (
+        UniqueConstraint("team_id", "name", name="uq_projects_team_id_name"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE"
+    )
+    installation_id: int = Field(
+        sa_column=Column(
+            BigInteger,
+            ForeignKey(
+                "github_app_installations.installation_id",
+                name="fk_projects_installation_id",
+                ondelete="RESTRICT",
+            ),
+            nullable=False,
+        )
+    )
+    github_repo_full_name: str = Field(max_length=512, nullable=False)
+    name: str = Field(min_length=1, max_length=255, nullable=False)
+    last_push_status: str | None = Field(
+        default=None, max_length=32, nullable=True
+    )
+    last_push_error: str | None = Field(default=None, nullable=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ProjectPublic(SQLModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    installation_id: int
+    github_repo_full_name: str
+    name: str
+    last_push_status: str | None = None
+    last_push_error: str | None = None
+    created_at: datetime | None = None
+
+
+class ProjectsPublic(SQLModel):
+    data: list[ProjectPublic]
+    count: int
+
+
+class ProjectCreate(SQLModel):
+    installation_id: int = Field(ge=1)
+    github_repo_full_name: str = Field(min_length=1, max_length=512)
+    name: str = Field(min_length=1, max_length=255)
+
+
+class ProjectUpdate(SQLModel):
+    """PATCH body for /api/v1/projects/{id} — name only today."""
+
+    name: str = Field(min_length=1, max_length=255)
+
+
+# Per-project push-back rule. 1:1 with `projects` (PK == FK). Three modes:
+#   - auto             : every user push is auto-pushed to GitHub (T04 wires
+#                        the executor + post-receive hook)
+#   - rule             : selective push by branch_pattern (M005); the rule is
+#                        stored but inert in M004
+#   - manual_workflow  : user runs a GitHub Actions workflow by id (M005);
+#                        also stored but inert in M004
+# branch_pattern is required for mode=rule; workflow_id is required for
+# mode=manual_workflow. Both are NULL for mode=auto. The CHECK constraint on
+# `mode` is enforced at the DB layer; field-shape validation is enforced at
+# the API layer (mode-specific 422 detail).
+class ProjectPushRule(SQLModel, table=True):
+    __tablename__ = "project_push_rules"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('auto', 'rule', 'manual_workflow')",
+            name="ck_project_push_rules_mode",
+        ),
+    )
+
+    project_id: uuid.UUID = Field(
+        foreign_key="projects.id",
+        primary_key=True,
+        ondelete="CASCADE",
+    )
+    mode: str = Field(max_length=32, nullable=False)
+    branch_pattern: str | None = Field(
+        default=None, max_length=255, nullable=True
+    )
+    workflow_id: str | None = Field(
+        default=None, max_length=255, nullable=True
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ProjectPushRulePublic(SQLModel):
+    project_id: uuid.UUID
+    mode: str
+    branch_pattern: str | None = None
+    workflow_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ProjectPushRulePut(SQLModel):
+    """PUT body for /api/v1/projects/{id}/push-rule.
+
+    Mode-specific field validation runs in the route — the model-level shape
+    only enforces the str-typing of the fields. The route returns 422 with a
+    field-specific detail for mismatches (e.g. mode=rule without
+    branch_pattern).
+    """
+
+    mode: str = Field(min_length=1, max_length=32)
+    branch_pattern: str | None = Field(default=None, max_length=255)
+    workflow_id: str | None = Field(default=None, max_length=255)
 
 
 # Wire-shapes for the M004/S02 install handshake. Kept colocated with the
