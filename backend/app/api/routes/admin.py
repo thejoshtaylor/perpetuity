@@ -13,8 +13,10 @@ Logs are UUID-only (matches S03 redaction posture) — no email or team name.
 """
 import json
 import logging
+import secrets
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,8 +28,10 @@ from app.api.deps import (
     SessionDep,
     get_current_active_superuser,
 )
+from app.core.encryption import encrypt_setting
 from app.models import (
     SystemSetting,
+    SystemSettingGenerateResponse,
     SystemSettingPublic,
     SystemSettingPut,
     SystemSettingPutResponse,
@@ -189,13 +193,43 @@ def promote_system_admin(
 # the foot-gun where a typo in the key would silently add a row that nothing
 # reads. New keys must be registered here alongside their validator.
 #
-# Logging discipline: never log the raw value — future settings may carry
-# secrets (e.g. SMTP_PASSWORD); log presence/absence and the key name only.
+# Logging discipline: never log the raw value — sensitive settings (PEMs,
+# webhook secrets) MUST never appear in logs or HTTPException details. We log
+# presence/absence, the key name, the actor, and the `sensitive` flag only.
 # ---------------------------------------------------------------------------
 
 
 WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
 IDLE_TIMEOUT_SECONDS_KEY = "idle_timeout_seconds"
+
+GITHUB_APP_ID_KEY = "github_app_id"
+GITHUB_APP_CLIENT_ID_KEY = "github_app_client_id"
+GITHUB_APP_PRIVATE_KEY_KEY = "github_app_private_key"
+GITHUB_APP_WEBHOOK_SECRET_KEY = "github_app_webhook_secret"
+
+# Bound the PEM body so a misconfigured paste can't push an arbitrarily large
+# blob through the API and into the DB. 16384 chars covers a 4096-bit RSA key
+# in PEM form with comfortable headroom for armor and metadata; 64 is the
+# floor that a structurally valid `-----BEGIN ... ----- ... -----END ... -----`
+# can fit into.
+_PEM_MIN_LEN = 64
+_PEM_MAX_LEN = 16384
+
+
+@dataclass(frozen=True)
+class _SettingSpec:
+    """Per-key registry entry.
+
+    `validator` is None for sensitive keys whose only writer is the server
+    (generator output is trusted by construction). `sensitive=True` flips the
+    storage path from JSONB `value` to BYTEA `value_encrypted` and redacts the
+    value from every read surface. `generator`, when present, is the
+    server-side seed function for `POST /admin/settings/{key}/generate`.
+    """
+
+    validator: Callable[[Any], None] | None
+    sensitive: bool
+    generator: Callable[[], str] | None
 
 
 def _validate_workspace_volume_size_gb(value: Any) -> None:
@@ -252,10 +286,156 @@ def _validate_idle_timeout_seconds(value: Any) -> None:
         )
 
 
-_VALIDATORS: dict[str, Callable[[Any], None]] = {
-    WORKSPACE_VOLUME_SIZE_GB_KEY: _validate_workspace_volume_size_gb,
-    IDLE_TIMEOUT_SECONDS_KEY: _validate_idle_timeout_seconds,
+def _validate_github_app_id(value: Any) -> None:
+    """GitHub App numeric ID. Stored in JSONB `value` (non-sensitive)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_ID_KEY,
+                "reason": "must be int in 1..2**63-1",
+            },
+        )
+    if not (1 <= value <= (2**63 - 1)):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_ID_KEY,
+                "reason": "must be int in 1..2**63-1",
+            },
+        )
+
+
+def _validate_github_app_client_id(value: Any) -> None:
+    """GitHub App OAuth client ID. Non-empty ASCII string ≤255 chars."""
+    if not isinstance(value, str) or not value:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_CLIENT_ID_KEY,
+                "reason": "must be non-empty ASCII string ≤255 chars",
+            },
+        )
+    if len(value) > 255 or not value.isascii():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_CLIENT_ID_KEY,
+                "reason": "must be non-empty ASCII string ≤255 chars",
+            },
+        )
+
+
+def _validate_github_app_private_key(value: Any) -> None:
+    """Structural PEM check at the API boundary.
+
+    We deliberately do NOT parse the key with
+    `cryptography.hazmat.primitives.serialization.load_pem_private_key` here
+    — that would pull the heavy hazmat layer onto every PUT. The structural
+    check (begins-with `-----BEGIN`, contains `-----END`, bounded length) is
+    the API contract; if the bytes happen to be non-PEM, S02's first
+    JWT-sign call will surface a structured error at decrypt-and-sign time.
+    Operator gets a fast PUT response; bad PEM surfaces at the call site
+    that actually needs to use it. NEVER include the value in the error.
+    """
+    if not isinstance(value, str):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_PRIVATE_KEY_KEY,
+                "reason": (
+                    "must be a PEM-encoded string starting with '-----BEGIN'"
+                    f" and length in {_PEM_MIN_LEN}..{_PEM_MAX_LEN}"
+                ),
+            },
+        )
+    if not (_PEM_MIN_LEN <= len(value) <= _PEM_MAX_LEN):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_PRIVATE_KEY_KEY,
+                "reason": (
+                    f"must be a PEM-encoded string of length"
+                    f" {_PEM_MIN_LEN}..{_PEM_MAX_LEN}"
+                ),
+            },
+        )
+    if not value.startswith("-----BEGIN") or "-----END" not in value:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": GITHUB_APP_PRIVATE_KEY_KEY,
+                "reason": (
+                    "must be a PEM-encoded string with"
+                    " '-----BEGIN' and '-----END' armor"
+                ),
+            },
+        )
+
+
+def _generate_webhook_secret() -> str:
+    """Server-side seed for `github_app_webhook_secret`.
+
+    `secrets.token_urlsafe(32)` yields ~43 url-safe base64 chars (256 bits of
+    entropy). Re-calling `POST .../generate` is intentionally destructive
+    (D025): a fresh secret breaks every in-flight webhook delivery until the
+    GitHub App's webhook secret is rotated to match. The destructive
+    semantics are an operator safety contract, not a bug.
+    """
+    return secrets.token_urlsafe(32)
+
+
+_VALIDATORS: dict[str, _SettingSpec] = {
+    WORKSPACE_VOLUME_SIZE_GB_KEY: _SettingSpec(
+        validator=_validate_workspace_volume_size_gb,
+        sensitive=False,
+        generator=None,
+    ),
+    IDLE_TIMEOUT_SECONDS_KEY: _SettingSpec(
+        validator=_validate_idle_timeout_seconds,
+        sensitive=False,
+        generator=None,
+    ),
+    GITHUB_APP_ID_KEY: _SettingSpec(
+        validator=_validate_github_app_id,
+        sensitive=False,
+        generator=None,
+    ),
+    GITHUB_APP_CLIENT_ID_KEY: _SettingSpec(
+        validator=_validate_github_app_client_id,
+        sensitive=False,
+        generator=None,
+    ),
+    GITHUB_APP_PRIVATE_KEY_KEY: _SettingSpec(
+        validator=_validate_github_app_private_key,
+        sensitive=True,
+        generator=None,
+    ),
+    GITHUB_APP_WEBHOOK_SECRET_KEY: _SettingSpec(
+        validator=None,
+        sensitive=True,
+        generator=_generate_webhook_secret,
+    ),
 }
+
+
+# Module-load assertion: any key that registers a generator MUST also be
+# sensitive. Generators exist to seed server-side secrets; storing a
+# generated value as plaintext JSONB would defeat the purpose. Catching
+# this at import time keeps a future misregistration from silently shipping.
+for _spec_key, _spec in _VALIDATORS.items():
+    if _spec.generator is not None and not _spec.sensitive:
+        raise AssertionError(
+            f"setting spec {_spec_key!r} declares a generator but"
+            " sensitive=False; generators are sensitive-only by design"
+        )
 
 
 def _compute_workspace_size_warnings(
@@ -285,6 +465,22 @@ def _compute_workspace_size_warnings(
     ]
 
 
+def _redact(row: SystemSetting) -> SystemSettingPublic:
+    """Project a SystemSetting row into its public, redaction-safe shape.
+
+    Sensitive rows always return `value=None` regardless of whether
+    `value_encrypted` is populated; the `has_value` boolean is the source
+    of truth for the FE's `Set` vs `Replace` rendering decision.
+    """
+    return SystemSettingPublic(
+        key=row.key,
+        sensitive=row.sensitive,
+        has_value=row.has_value,
+        value=None if row.sensitive else row.value,
+        updated_at=row.updated_at,
+    )
+
+
 @router.get("/settings")
 def list_system_settings(
     session: SessionDep,
@@ -294,13 +490,12 @@ def list_system_settings(
 
     Returns `{data: [SystemSettingPublic, ...], count}`. The full set is
     expected to stay tiny (one row per registered key), so no pagination.
+    Sensitive rows have their `value` redacted to `null` — clients use
+    `has_value` to render the `Set` vs `Replace` UI.
     """
     statement = select(SystemSetting).order_by(col(SystemSetting.key))
     rows = session.exec(statement).all()
-    data = [
-        SystemSettingPublic.model_validate(row, from_attributes=True)
-        for row in rows
-    ]
+    data = [_redact(row) for row in rows]
     logger.info(
         "system_settings_listed actor_id=%s count=%s",
         current_user.id,
@@ -316,7 +511,7 @@ def get_system_setting(
     current_user: CurrentUser,
     key: str,
 ) -> Any:
-    """Return a single system setting or 404."""
+    """Return a single system setting or 404. Sensitive rows are redacted."""
     row = session.get(SystemSetting, key)
     if row is None:
         raise HTTPException(status_code=404, detail="setting_not_found")
@@ -325,7 +520,55 @@ def get_system_setting(
         current_user.id,
         key,
     )
-    return row
+    return _redact(row)
+
+
+def _upsert_jsonb(session: Session, key: str, value: Any) -> Any:
+    """UPSERT a non-sensitive JSONB value. Returns the resulting row."""
+    upsert = text(
+        """
+        INSERT INTO system_settings
+            (key, value, value_encrypted, sensitive, has_value, updated_at)
+        VALUES
+            (:key, CAST(:value AS JSONB), NULL, FALSE, TRUE, NOW())
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value,
+            value_encrypted = NULL,
+            sensitive = FALSE,
+            has_value = TRUE,
+            updated_at = NOW()
+        RETURNING key, value, value_encrypted, sensitive, has_value, updated_at
+        """
+    )
+    result = session.execute(upsert, {"key": key, "value": json.dumps(value)})
+    return result.one()
+
+
+def _upsert_encrypted(session: Session, key: str, plaintext: str) -> Any:
+    """Encrypt plaintext and UPSERT into BYTEA `value_encrypted`.
+
+    The plaintext is consumed in this function and never logged or
+    returned. `value` is forced NULL so a stale non-sensitive payload from
+    a prior misregistration cannot linger on a sensitive row.
+    """
+    ciphertext = encrypt_setting(plaintext)
+    upsert = text(
+        """
+        INSERT INTO system_settings
+            (key, value, value_encrypted, sensitive, has_value, updated_at)
+        VALUES
+            (:key, NULL, :ct, TRUE, TRUE, NOW())
+        ON CONFLICT (key) DO UPDATE
+        SET value = NULL,
+            value_encrypted = EXCLUDED.value_encrypted,
+            sensitive = TRUE,
+            has_value = TRUE,
+            updated_at = NOW()
+        RETURNING key, value, value_encrypted, sensitive, has_value, updated_at
+        """
+    )
+    result = session.execute(upsert, {"key": key, "ct": ciphertext})
+    return result.one()
 
 
 @router.put("/settings/{key}", response_model=SystemSettingPutResponse)
@@ -341,48 +584,61 @@ def put_system_setting(
     Reject-by-default on unknown keys. Per-key validators raise 422 with
     `{detail: 'invalid_value_for_key', key, reason}` on bad input.
 
+    Sensitive keys (`spec.sensitive=True`) take the encrypted-storage path:
+    the value is Fernet-encrypted, written to BYTEA `value_encrypted`, and
+    `value` is NULLed. The PUT response for sensitive keys returns
+    `value=None` — the plaintext does NOT cross the API boundary on PUT.
+
+    Non-sensitive keys take the JSONB path and behave as in M002.
+
     For `workspace_volume_size_gb`, also computes the partial-apply shrink
     warnings (D015): rows with size_gb > new_value are reported but not
     rewritten. New volumes pick up the new default; existing rows keep their
     historical cap (cap divergence allowed).
     """
-    validator = _VALIDATORS.get(key)
-    if validator is None:
+    spec = _VALIDATORS.get(key)
+    if spec is None:
         raise HTTPException(
             status_code=422,
             detail={"detail": "unknown_setting_key", "key": key},
         )
-    validator(body.value)
+    if spec.validator is not None:
+        spec.validator(body.value)
 
     previous = session.get(SystemSetting, key)
-    previous_value_present = previous is not None
+    previous_value_present = previous is not None and previous.has_value
 
-    # UPSERT via Postgres ON CONFLICT. Use raw SQL because SQLAlchemy's
-    # JSONB binding handles arbitrary JSON-serializable Python values, and
-    # this is the canonical pattern for INSERT...ON CONFLICT in Postgres.
-    upsert = text(
-        """
-        INSERT INTO system_settings (key, value, updated_at)
-        VALUES (:key, CAST(:value AS JSONB), NOW())
-        ON CONFLICT (key) DO UPDATE
-        SET value = EXCLUDED.value, updated_at = NOW()
-        RETURNING key, value, updated_at
-        """
-    )
-    result = session.execute(
-        upsert, {"key": key, "value": json.dumps(body.value)}
-    )
-    row = result.one()
-    session.commit()
-
-    warnings: list[SystemSettingShrinkWarning] = []
-    if key == WORKSPACE_VOLUME_SIZE_GB_KEY:
-        warnings = _compute_workspace_size_warnings(session, body.value)
+    if spec.sensitive:
+        # Sensitive PUT path: validator already accepted the value, encrypt
+        # and store. Force the plaintext to str (validator guarantees it
+        # for the only sensitive PUT-able key today, github_app_private_key).
+        if not isinstance(body.value, str):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "detail": "invalid_value_for_key",
+                    "key": key,
+                    "reason": "sensitive value must be a string",
+                },
+            )
+        row = _upsert_encrypted(session, key, body.value)
+        session.commit()
+        warnings: list[SystemSettingShrinkWarning] = []
+        # Sensitive keys never carry workspace-shrink semantics today; if a
+        # future sensitive key needs a similar partial-apply hook, register
+        # it explicitly rather than dispatching by key here.
+    else:
+        row = _upsert_jsonb(session, key, body.value)
+        session.commit()
+        warnings = []
+        if key == WORKSPACE_VOLUME_SIZE_GB_KEY:
+            warnings = _compute_workspace_size_warnings(session, body.value)
 
     logger.info(
-        "system_setting_updated actor_id=%s key=%s previous_value_present=%s",
+        "system_setting_updated actor_id=%s key=%s sensitive=%s previous_value_present=%s",
         current_user.id,
         key,
+        str(spec.sensitive).lower(),
         str(previous_value_present).lower(),
     )
     if warnings:
@@ -393,9 +649,69 @@ def put_system_setting(
             len(warnings),
         )
 
+    # PutResponse exposes `value` for back-compat with non-sensitive M002
+    # callers. For sensitive rows the value is None (plaintext does not
+    # cross the API boundary on PUT — only on the one-shot generate path).
     return SystemSettingPutResponse(
         key=row.key,
-        value=row.value,
+        value=None if spec.sensitive else row.value,
         updated_at=row.updated_at,
         warnings=warnings,
+    )
+
+
+@router.post(
+    "/settings/{key}/generate",
+    response_model=SystemSettingGenerateResponse,
+)
+def generate_system_setting(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    key: str,
+) -> Any:
+    """Server-side seed a generator-backed sensitive setting.
+
+    Returns the freshly-generated plaintext value EXACTLY ONCE; subsequent
+    GETs return `value=null, has_value=true`. Re-calling this endpoint is
+    intentionally destructive (D025): a fresh webhook secret breaks every
+    in-flight webhook until GitHub is updated to match. Operators are
+    expected to rotate upstream first, generate here second.
+
+    422 shapes:
+      - `unknown_setting_key` for an unregistered key (matches PUT).
+      - `no_generator_for_key` for a registered key with no generator
+        (e.g. `github_app_private_key`, which has no server-side seed —
+        the operator pastes the PEM via PUT).
+    """
+    spec = _VALIDATORS.get(key)
+    if spec is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"detail": "unknown_setting_key", "key": key},
+        )
+    if spec.generator is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"detail": "no_generator_for_key", "key": key},
+        )
+    # Generators are sensitive-only by construction (asserted at module load).
+    plaintext = spec.generator()
+    row = _upsert_encrypted(session, key, plaintext)
+    session.commit()
+
+    logger.info(
+        "system_setting_generated actor_id=%s key=%s",
+        current_user.id,
+        key,
+    )
+
+    # The plaintext crosses the API boundary exactly once — on this
+    # response. Subsequent GETs always redact to value=None.
+    return SystemSettingGenerateResponse(
+        key=row.key,
+        value=plaintext,
+        has_value=True,
+        generated=True,
+        updated_at=row.updated_at,
     )

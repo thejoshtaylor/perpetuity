@@ -9,12 +9,14 @@ Covers:
 Multi-user flows follow MEM029 (detached cookie jar per user; clear the
 shared TestClient jar between signups).
 """
+import json
 import logging
 import uuid
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlmodel import Session, delete, select
 
 from app.core.config import settings
@@ -590,3 +592,435 @@ def test_put_idle_timeout_seconds_max_allowed_returns_200(
     )
     assert r.status_code == 200, r.text
     assert r.json()["value"] == 86400
+
+
+# ---------------------------------------------------------------------------
+# M004/S01: sensitive keys (github_app_*) — encrypted PUT, redacted GET,
+# generate endpoint, decrypt-failure 503.
+# ---------------------------------------------------------------------------
+
+GITHUB_APP_ID = "github_app_id"
+GITHUB_APP_CLIENT_ID = "github_app_client_id"
+GITHUB_APP_PRIVATE_KEY = "github_app_private_key"
+GITHUB_APP_WEBHOOK_SECRET = "github_app_webhook_secret"
+
+
+@pytest.fixture(autouse=True)
+def _set_encryption_key(monkeypatch):
+    """Ensure SYSTEM_SETTINGS_ENCRYPTION_KEY is present for sensitive paths.
+
+    Encryption is module-cached (`@functools.cache`) — clearing the cache so
+    each test sees a fresh load is what makes the env-var swap take effect.
+    """
+    # A real Fernet key (44-char url-safe base64 of 32 bytes). Generated
+    # once and pinned here so the tests are deterministic.
+    monkeypatch.setenv(
+        "SYSTEM_SETTINGS_ENCRYPTION_KEY",
+        "q14YMz9s4jrbfD29GvcRfe_4krg82w6_mPWUu_y3LTo=",
+    )
+    from app.core import encryption as _enc
+
+    _enc._load_key.cache_clear()
+    yield
+    _enc._load_key.cache_clear()
+
+
+def _valid_pem() -> str:
+    """Return a structurally-valid PEM body. Length within validator bounds.
+
+    The bytes do not need to be a real RSA key — the validator is structural
+    (begins/ends/length); semantic validation is deferred to S02's first
+    JWT-sign call.
+    """
+    body = "A" * 200
+    return f"-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----"
+
+
+# --- PUT sensitive: github_app_private_key ---------------------------------
+
+
+def test_put_github_app_private_key_redacts_value_in_response(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """PUT a sensitive PEM: response shape carries no plaintext."""
+    pem = _valid_pem()
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        json={"value": pem},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == GITHUB_APP_PRIVATE_KEY
+    # PutResponse for sensitive keys exposes value=None — plaintext does
+    # NOT cross the API boundary on PUT.
+    assert body["value"] is None
+    assert body["warnings"] == []
+
+
+def test_get_github_app_private_key_after_put_returns_redacted(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """After a sensitive PUT, GET shows has_value:true and value:null."""
+    client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        json={"value": _valid_pem()},
+        cookies=superuser_cookies,
+    )
+    r = client.get(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == GITHUB_APP_PRIVATE_KEY
+    assert body["sensitive"] is True
+    assert body["has_value"] is True
+    assert body["value"] is None
+
+
+def test_list_settings_redacts_sensitive_values(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """The list surface NEVER returns plaintext for sensitive rows."""
+    client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        json={"value": _valid_pem()},
+        cookies=superuser_cookies,
+    )
+    client.put(
+        f"{ADMIN_SETTINGS_URL}/{WORKSPACE_VOLUME_SIZE_GB}",
+        json={"value": 4},
+        cookies=superuser_cookies,
+    )
+    r = client.get(ADMIN_SETTINGS_URL, cookies=superuser_cookies)
+    assert r.status_code == 200, r.text
+    by_key = {row["key"]: row for row in r.json()["data"]}
+    assert by_key[GITHUB_APP_PRIVATE_KEY]["value"] is None
+    assert by_key[GITHUB_APP_PRIVATE_KEY]["has_value"] is True
+    assert by_key[GITHUB_APP_PRIVATE_KEY]["sensitive"] is True
+    # Non-sensitive row is unchanged — still carries its value.
+    assert by_key[WORKSPACE_VOLUME_SIZE_GB]["value"] == 4
+    assert by_key[WORKSPACE_VOLUME_SIZE_GB]["sensitive"] is False
+
+
+def test_put_github_app_private_key_logs_sensitive_true_no_plaintext(
+    client: TestClient, superuser_cookies: httpx.Cookies, caplog
+) -> None:
+    """Updated log line carries sensitive=true and never the plaintext."""
+    pem = _valid_pem()
+    with caplog.at_level(logging.INFO, logger="app.api.routes.admin"):
+        r = client.put(
+            f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+            json={"value": pem},
+            cookies=superuser_cookies,
+        )
+    assert r.status_code == 200
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "system_setting_updated" in m
+        and f"key={GITHUB_APP_PRIVATE_KEY}" in m
+        and "sensitive=true" in m
+        for m in msgs
+    ), msgs
+    # Plaintext MUST NOT appear in any log line.
+    for m in msgs:
+        assert pem not in m
+
+
+def test_put_github_app_private_key_invalid_pem_returns_422_no_value(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Malformed PEM rejected; reason text never contains the value."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        json={"value": "not a pem"},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == GITHUB_APP_PRIVATE_KEY
+    assert "not a pem" not in detail["reason"]
+
+
+def test_put_github_app_private_key_too_short_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Below the structural-length floor."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        json={"value": "-----BEGIN-----END"},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+# --- PUT non-sensitive: github_app_id, github_app_client_id ---------------
+
+
+def test_put_github_app_id_stores_in_jsonb(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """github_app_id is non-sensitive and round-trips through GET."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_ID}",
+        json={"value": 12345},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["value"] == 12345
+    g = client.get(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_ID}",
+        cookies=superuser_cookies,
+    )
+    assert g.json()["value"] == 12345
+    assert g.json()["sensitive"] is False
+
+
+def test_put_github_app_id_bool_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """JSON true must be rejected (bool is subclass of int)."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_ID}",
+        json={"value": True},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+def test_put_github_app_client_id_stores_string(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_CLIENT_ID}",
+        json={"value": "Iv1.abc123"},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["value"] == "Iv1.abc123"
+
+
+def test_put_github_app_client_id_empty_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_CLIENT_ID}",
+        json={"value": ""},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+# --- POST /generate -------------------------------------------------------
+
+
+def test_generate_webhook_secret_returns_value_once(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """The plaintext webhook secret crosses the API boundary exactly once.
+
+    First call: response carries value plaintext + has_value/generated.
+    Subsequent GET: value=null, has_value=true.
+    """
+    r = client.post(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_WEBHOOK_SECRET}/generate",
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == GITHUB_APP_WEBHOOK_SECRET
+    assert isinstance(body["value"], str)
+    assert len(body["value"]) >= 32  # token_urlsafe(32) ≈ 43 chars
+    plaintext = body["value"]
+    assert body["has_value"] is True
+    assert body["generated"] is True
+
+    # Subsequent GET returns the redacted shape.
+    g = client.get(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_WEBHOOK_SECRET}",
+        cookies=superuser_cookies,
+    )
+    assert g.status_code == 200
+    assert g.json()["value"] is None
+    assert g.json()["has_value"] is True
+    assert g.json()["sensitive"] is True
+    # Confirm the plaintext doesn't leak into list either.
+    lst = client.get(ADMIN_SETTINGS_URL, cookies=superuser_cookies)
+    by_key = {row["key"]: row for row in lst.json()["data"]}
+    assert by_key[GITHUB_APP_WEBHOOK_SECRET]["value"] is None
+    # And separately: regenerating yields a NEW plaintext (destructive on
+    # re-call — D025).
+    r2 = client.post(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_WEBHOOK_SECRET}/generate",
+        cookies=superuser_cookies,
+    )
+    assert r2.status_code == 200
+    assert r2.json()["value"] != plaintext
+
+
+def test_generate_emits_system_setting_generated_log(
+    client: TestClient, superuser_cookies: httpx.Cookies, caplog
+) -> None:
+    with caplog.at_level(logging.INFO, logger="app.api.routes.admin"):
+        r = client.post(
+            f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_WEBHOOK_SECRET}/generate",
+            cookies=superuser_cookies,
+        )
+    assert r.status_code == 200
+    plaintext = r.json()["value"]
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "system_setting_generated" in m
+        and f"key={GITHUB_APP_WEBHOOK_SECRET}" in m
+        for m in msgs
+    ), msgs
+    # Plaintext MUST NOT appear in any log line.
+    for m in msgs:
+        assert plaintext not in m
+
+
+def test_generate_unregistered_key_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    r = client.post(
+        f"{ADMIN_SETTINGS_URL}/never_registered_key/generate",
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["detail"] == "unknown_setting_key"
+
+
+def test_generate_key_without_generator_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """github_app_private_key has no server-side seed — operator pastes it."""
+    r = client.post(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}/generate",
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "no_generator_for_key"
+    assert detail["key"] == GITHUB_APP_PRIVATE_KEY
+
+
+def test_generate_unauthenticated_returns_401(client: TestClient) -> None:
+    client.cookies.clear()
+    r = client.post(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_WEBHOOK_SECRET}/generate",
+    )
+    assert r.status_code == 401
+
+
+def test_generate_as_normal_user_returns_403(client: TestClient) -> None:
+    _u_id, cookies_u = _signup(client)
+    r = client.post(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_WEBHOOK_SECRET}/generate",
+        cookies=cookies_u,
+    )
+    assert r.status_code == 403
+
+
+# --- Decrypt-failure 503 handler ------------------------------------------
+
+
+def test_corrupted_ciphertext_decrypts_to_decrypt_error(
+    client: TestClient,
+    superuser_cookies: httpx.Cookies,
+    db: Session,
+) -> None:
+    """Corrupted Fernet ciphertext raises SystemSettingDecryptError.
+
+    The decrypt helper is the single source of truth for sensitive-key
+    failures; the global handler in main.py translates the exception into
+    503 + the structured log. This test confirms the helper-side contract;
+    `test_decrypt_error_handler_returns_503_with_key_and_log` confirms the
+    handler-side translation.
+    """
+    from app.core.encryption import (
+        SystemSettingDecryptError,
+        decrypt_setting,
+    )
+
+    # Seed a valid sensitive row and then corrupt the ciphertext at the DB.
+    client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_PRIVATE_KEY}",
+        json={"value": _valid_pem()},
+        cookies=superuser_cookies,
+    )
+    db.execute(
+        text(
+            "UPDATE system_settings SET value_encrypted = :ct WHERE key = :k"
+        ),
+        {"ct": b"not-a-valid-fernet-token", "k": GITHUB_APP_PRIVATE_KEY},
+    )
+    db.commit()
+
+    row = db.exec(
+        select(SystemSetting).where(
+            SystemSetting.key == GITHUB_APP_PRIVATE_KEY
+        )
+    ).one()
+    with pytest.raises(SystemSettingDecryptError):
+        decrypt_setting(row.value_encrypted)
+
+
+def test_decrypt_error_handler_returns_503_with_key_and_log(
+    caplog,
+) -> None:
+    """The global handler turns SystemSettingDecryptError into 503 + log.
+
+    Drives the handler directly with a synthetic request so the test does
+    not depend on a real decrypt site (the only such site lands in S02).
+    Confirms the response shape (`detail`, `key`) and the ERROR log line
+    `system_settings_decrypt_failed key=<name>` — the single fan-in for
+    every decrypt failure.
+    """
+    import asyncio
+
+    from app.core.encryption import SystemSettingDecryptError
+    from app.main import _system_settings_decrypt_failed_handler
+
+    exc = SystemSettingDecryptError(key="github_app_private_key")
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        response = asyncio.run(
+            _system_settings_decrypt_failed_handler(None, exc)  # type: ignore[arg-type]
+        )
+
+    assert response.status_code == 503
+    body = json.loads(response.body)
+    assert body["detail"] == "system_settings_decrypt_failed"
+    assert body["key"] == "github_app_private_key"
+
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "system_settings_decrypt_failed" in m
+        and "key=github_app_private_key" in m
+        for m in msgs
+    ), msgs
+
+
+# --- Boot-time encryption-key validation ----------------------------------
+
+
+def test_encryption_key_unset_at_decrypt_call_raises_runtime_error(
+    monkeypatch,
+) -> None:
+    """Bad/missing SYSTEM_SETTINGS_ENCRYPTION_KEY surfaces at first use.
+
+    The loader is `@functools.cache`-d and lazy: importing the module
+    succeeds even with no key registered (preserving dev ergonomics), but
+    the first encrypt/decrypt call fails loudly with RuntimeError naming
+    the env var. This is the contract documented in T01.
+    """
+    from app.core import encryption as _enc
+
+    monkeypatch.delenv("SYSTEM_SETTINGS_ENCRYPTION_KEY", raising=False)
+    _enc._load_key.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="SYSTEM_SETTINGS_ENCRYPTION_KEY"):
+            _enc.encrypt_setting("anything")
+    finally:
+        _enc._load_key.cache_clear()
