@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 
 from orchestrator.auth import SharedSecretMiddleware
 from orchestrator.config import settings
+from orchestrator.encryption import SystemSettingDecryptError
 from orchestrator.errors import (
     DockerUnavailable,
     ImagePullFailed,
@@ -35,6 +36,7 @@ from orchestrator.errors import (
 )
 from orchestrator.reaper import start_reaper, stop_reaper
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
+from orchestrator.routes_github import router as github_router
 from orchestrator.routes_sessions import router as sessions_router
 from orchestrator.routes_ws import router as ws_router
 from orchestrator.sessions import VolumeMountFailed
@@ -338,8 +340,33 @@ async def _workspace_volume_store_unavailable_handler(
     )
 
 
+@app.exception_handler(SystemSettingDecryptError)
+async def _system_settings_decrypt_failed_handler(
+    _request: Request, exc: SystemSettingDecryptError
+) -> JSONResponse:
+    """M004/S02 mirror of the backend handler.
+
+    A Fernet decrypt of a sensitive system_settings row failed — most
+    likely a key rotation mismatch between backend and orchestrator.
+    Plaintext NEVER appears in the log line or response body; only the
+    row key is named so triage can localize without leaking the secret.
+    """
+    logger.error(
+        "system_settings_decrypt_failed key=%s",
+        exc.key,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": "system_settings_decrypt_failed",
+            "key": exc.key,
+        },
+    )
+
+
 app.include_router(sessions_router)
 app.include_router(ws_router)
+app.include_router(github_router)
 
 
 @app.get("/v1/health")

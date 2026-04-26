@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn<1.0.0,>=0.27.0",
     "asyncpg<1.0.0,>=0.29.0",
     "cryptography<46.0.0,>=43.0.0",
+    "pyjwt[crypto]<3.0.0,>=2.8.0",
 ]
 
 [dependency-groups]
@@ -21,6 +22,8 @@ dev = [
     "pytest-asyncio<1.0.0,>=0.23.0",
     "ruff<1.0.0,>=0.2.2",
     "mypy<2.0.0,>=1.8.0",
+    "respx<1.0.0,>=0.21.0",
+    "fakeredis<3.0.0,>=2.21.0",
 ]
 
 [build-system]

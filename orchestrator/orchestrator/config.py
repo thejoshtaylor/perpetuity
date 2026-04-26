@@ -78,5 +78,10 @@ class Settings(BaseSettings):
     orchestrator_api_key: str = Field(default="")
     orchestrator_api_key_previous: str = Field(default="")
 
+    # GitHub REST API base. Production points at the public host;
+    # tests respx-mock this URL directly. Trailing slash is normalized
+    # off at call sites.
+    github_api_base_url: str = "https://api.github.com"
+
 
 settings = Settings()
