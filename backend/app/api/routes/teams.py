@@ -26,6 +26,9 @@ from app.models import (
     TeamMember,
     TeamMemberPublic,
     TeamMembersPublic,
+    TeamMirrorPatch,
+    TeamMirrorVolume,
+    TeamMirrorVolumePublic,
     TeamRole,
     TeamWithRole,
     User,
@@ -379,3 +382,67 @@ def remove_member(
         current_user.id,
     )
     return Response(status_code=204)
+
+
+@router.patch("/{team_id}/mirror", response_model=TeamMirrorVolumePublic)
+def update_team_mirror(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    team_id: uuid.UUID,
+    body: TeamMirrorPatch,
+) -> Any:
+    """Toggle the per-team `always_on` flag on `team_mirror_volumes`.
+
+    The backend never calls the orchestrator here — the toggle just biases
+    the next reaper tick which reads the row directly. Auto-creates the row
+    with a placeholder `volume_path='pending:<team_id>'` on first PATCH so
+    an admin can pre-toggle a team that has never spun up a mirror; the
+    orchestrator's ensure path replaces the placeholder on first cold-start.
+
+    - 404 if team missing (does NOT auto-create a row for an unknown team).
+    - 403 if caller is not an admin on the team.
+    - 422 if body is missing/malformed (pydantic).
+    - 200 TeamMirrorVolumePublic on success (idempotent — same value twice
+      returns 200 with no warning).
+    """
+    _assert_caller_is_team_admin(session, team_id, current_user.id)
+
+    row = session.exec(
+        select(TeamMirrorVolume).where(TeamMirrorVolume.team_id == team_id)
+    ).first()
+
+    created_row = False
+    if row is None:
+        # First-touch pre-toggle: ensure path will replace `volume_path`
+        # on first cold-start. Placeholder is uuid-keyed → log-safe.
+        row = TeamMirrorVolume(
+            team_id=team_id,
+            volume_path=f"pending:{team_id}",
+            always_on=body.always_on,
+        )
+        created_row = True
+    else:
+        row.always_on = body.always_on
+
+    try:
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    except Exception:
+        session.rollback()
+        logger.warning(
+            "team_mirror_always_on_tx_rollback team_id=%s actor_id=%s",
+            team_id,
+            current_user.id,
+        )
+        raise
+
+    logger.info(
+        "team_mirror_always_on_toggled team_id=%s actor_id=%s always_on=%s created_row=%s",
+        team_id,
+        current_user.id,
+        body.always_on,
+        created_row,
+    )
+    return row
