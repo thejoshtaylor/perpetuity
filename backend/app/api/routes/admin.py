@@ -201,6 +201,7 @@ def promote_system_admin(
 
 WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
 IDLE_TIMEOUT_SECONDS_KEY = "idle_timeout_seconds"
+MIRROR_IDLE_TIMEOUT_SECONDS_KEY = "mirror_idle_timeout_seconds"
 
 GITHUB_APP_ID_KEY = "github_app_id"
 GITHUB_APP_CLIENT_ID_KEY = "github_app_client_id"
@@ -282,6 +283,35 @@ def _validate_idle_timeout_seconds(value: Any) -> None:
                 "detail": "invalid_value_for_key",
                 "key": IDLE_TIMEOUT_SECONDS_KEY,
                 "reason": "must be int in 1..86400",
+            },
+        )
+
+
+def _validate_mirror_idle_timeout_seconds(value: Any) -> None:
+    """Per-team mirror reaper window — int seconds in 60..86400.
+
+    Floor of 60s keeps the reaper from being weaponized into a DoS on the
+    mirror container (a low timeout would tear down on every tick). Cap of
+    86400 (24h) matches the user-session reaper. Default applied at the
+    orchestrator side is 1800s (30m). bool rejected explicitly so JSON
+    `true` doesn't silently coerce to 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": MIRROR_IDLE_TIMEOUT_SECONDS_KEY,
+                "reason": "must be int in 60..86400",
+            },
+        )
+    if not (60 <= value <= 86400):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": MIRROR_IDLE_TIMEOUT_SECONDS_KEY,
+                "reason": "must be int in 60..86400",
             },
         )
 
@@ -400,6 +430,11 @@ _VALIDATORS: dict[str, _SettingSpec] = {
     ),
     IDLE_TIMEOUT_SECONDS_KEY: _SettingSpec(
         validator=_validate_idle_timeout_seconds,
+        sensitive=False,
+        generator=None,
+    ),
+    MIRROR_IDLE_TIMEOUT_SECONDS_KEY: _SettingSpec(
+        validator=_validate_mirror_idle_timeout_seconds,
         sensitive=False,
         generator=None,
     ),

@@ -298,6 +298,59 @@ class GitHubAppInstallationPublic(SQLModel):
     created_at: datetime | None = None
 
 
+# Per-team mirror container state-of-record. One row per team (UNIQUE on
+# team_id). The row outlives any individual container — `container_id` goes
+# NULL after a reap; `volume_path` stays put so the next ensure remounts
+# the same /repos. `last_started_at` / `last_idle_at` drive the reaper:
+# `always_on=true` suppresses reap entirely. `volume_path` is uuid-keyed
+# by construction in the orchestrator (no PII).
+class TeamMirrorVolume(SQLModel, table=True):
+    __tablename__ = "team_mirror_volumes"
+    __table_args__ = (
+        UniqueConstraint("team_id", name="uq_team_mirror_volumes_team_id"),
+        UniqueConstraint(
+            "volume_path", name="uq_team_mirror_volumes_volume_path"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE"
+    )
+    volume_path: str = Field(max_length=512, nullable=False)
+    container_id: str | None = Field(
+        default=None, max_length=64, nullable=True
+    )
+    last_started_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True), nullable=True  # type: ignore
+    )
+    last_idle_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True), nullable=True  # type: ignore
+    )
+    always_on: bool = Field(default=False, nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class TeamMirrorVolumePublic(SQLModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    volume_path: str
+    container_id: str | None = None
+    last_started_at: datetime | None = None
+    last_idle_at: datetime | None = None
+    always_on: bool
+    created_at: datetime | None = None
+
+
+class TeamMirrorPatch(SQLModel):
+    """PATCH body for /api/v1/teams/{id}/mirror — only `always_on` toggles today."""
+
+    always_on: bool
+
+
 # Wire-shapes for the M004/S02 install handshake. Kept colocated with the
 # row model so the API surface and persistence shape evolve together.
 class InstallUrlResponse(SQLModel):

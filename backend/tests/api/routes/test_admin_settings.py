@@ -28,6 +28,7 @@ SIGNUP_URL = f"{settings.API_V1_STR}/auth/signup"
 
 WORKSPACE_VOLUME_SIZE_GB = "workspace_volume_size_gb"
 IDLE_TIMEOUT_SECONDS = "idle_timeout_seconds"
+MIRROR_IDLE_TIMEOUT_SECONDS = "mirror_idle_timeout_seconds"
 
 
 @pytest.fixture(autouse=True)
@@ -592,6 +593,164 @@ def test_put_idle_timeout_seconds_max_allowed_returns_200(
     )
     assert r.status_code == 200, r.text
     assert r.json()["value"] == 86400
+
+
+# ---------------------------------------------------------------------------
+# PUT /admin/settings/{key} — mirror_idle_timeout_seconds (S03 / T01)
+#
+# Per-team mirror reaper window. Same int-in-range shape as
+# idle_timeout_seconds, but with a stricter floor (60s) so a misconfigured
+# value can't tear down the mirror container on every reaper tick.
+# ---------------------------------------------------------------------------
+
+
+def test_put_mirror_idle_timeout_seconds_default_returns_200(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Happy path: PUT mirror_idle_timeout_seconds=1800 returns 200, no warnings."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 1800},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == MIRROR_IDLE_TIMEOUT_SECONDS
+    assert body["value"] == 1800
+    assert body["warnings"] == []
+
+
+def test_put_mirror_idle_timeout_seconds_get_after_put(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """GET after PUT round-trips with sensitive=False, has_value=True."""
+    client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 1800},
+        cookies=superuser_cookies,
+    )
+    r = client.get(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == MIRROR_IDLE_TIMEOUT_SECONDS
+    assert body["value"] == 1800
+    assert body["sensitive"] is False
+    assert body["has_value"] is True
+
+
+def test_put_mirror_idle_timeout_seconds_below_floor_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 59 is below the 60s floor — would weaponize the reaper."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 59},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == MIRROR_IDLE_TIMEOUT_SECONDS
+    assert "must be int in 60..86400" in detail["reason"]
+
+
+def test_put_mirror_idle_timeout_seconds_min_allowed_returns_200(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 60 (exact floor) is accepted."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 60},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["value"] == 60
+
+
+def test_put_mirror_idle_timeout_seconds_above_cap_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 86401 exceeds the 24h cap."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 86401},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+def test_put_mirror_idle_timeout_seconds_max_allowed_returns_200(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 86400 (exact max, 24h) is accepted."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 86400},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["value"] == 86400
+
+
+def test_put_mirror_idle_timeout_seconds_bool_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """JSON `true` MUST be rejected — bool is a subclass of int."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": True},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == MIRROR_IDLE_TIMEOUT_SECONDS
+
+
+def test_put_mirror_idle_timeout_seconds_str_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Non-int string rejected with structured 422."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": "thirty-minutes"},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == MIRROR_IDLE_TIMEOUT_SECONDS
+    assert "must be int in 60..86400" in detail["reason"]
+
+
+def test_put_mirror_idle_timeout_seconds_float_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Floats rejected — int is the only accepted shape."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 1800.5},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["detail"] == "invalid_value_for_key"
+    assert detail["key"] == MIRROR_IDLE_TIMEOUT_SECONDS
+
+
+def test_put_mirror_idle_timeout_seconds_zero_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    """Boundary: 0 is below the 60..86400 range — would disable the reaper."""
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{MIRROR_IDLE_TIMEOUT_SECONDS}",
+        json={"value": 0},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
 
 
 # ---------------------------------------------------------------------------
