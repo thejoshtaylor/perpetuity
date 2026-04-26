@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import EmailStr
-from sqlalchemy import Column, DateTime, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -256,6 +256,46 @@ class SystemSettingGenerateResponse(SQLModel):
     has_value: bool = True
     generated: bool = True
     updated_at: datetime | None = None
+
+
+# Per-team GitHub App installation. After a team admin walks through the
+# GitHub App install handshake, the install-callback persists one row here
+# scoped to the originating team. The orchestrator looks up by team_id when
+# minting installation tokens. installation_id is BIGINT because GitHub
+# installation ids are int64; UNIQUE because the same installation can only
+# be claimed by one team at a time.
+class GitHubAppInstallation(SQLModel, table=True):
+    __tablename__ = "github_app_installations"
+    __table_args__ = (
+        UniqueConstraint(
+            "installation_id", name="uq_github_app_installations_installation_id"
+        ),
+        CheckConstraint(
+            "account_type IN ('Organization', 'User')",
+            name="ck_github_app_installations_account_type",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE"
+    )
+    installation_id: int = Field(sa_column=Column(BigInteger, nullable=False))
+    account_login: str = Field(max_length=255, nullable=False)
+    account_type: str = Field(max_length=64, nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class GitHubAppInstallationPublic(SQLModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    installation_id: int
+    account_login: str
+    account_type: str
+    created_at: datetime | None = None
 
 
 class TeamInvitePublic(SQLModel):
