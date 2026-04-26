@@ -66,6 +66,14 @@ _IDLE_TIMEOUT_SECONDS_KEY = "idle_timeout_seconds"
 _IDLE_TIMEOUT_SECONDS_MIN = 1
 _IDLE_TIMEOUT_SECONDS_MAX = 86400
 
+# Per-team mirror idle timeout. Floor at 60s (not 1s like the user-session
+# reaper) — sub-60s would tear down the mirror container on every reaper
+# tick, weaponizing the reaper. The 60s floor matches the admin validator
+# in backend/app/api/routes/admin.py (T01).
+_MIRROR_IDLE_TIMEOUT_SECONDS_KEY = "mirror_idle_timeout_seconds"
+_MIRROR_IDLE_TIMEOUT_SECONDS_MIN = 60
+_MIRROR_IDLE_TIMEOUT_SECONDS_MAX = 86400
+
 
 class VolumeRecord(NamedTuple):
     """Subset of the workspace_volume row the orchestrator actually uses.
@@ -409,6 +417,86 @@ async def _resolve_idle_timeout_seconds(pool: asyncpg.Pool) -> int:
     return value
 
 
+async def _resolve_mirror_idle_timeout_seconds(pool: asyncpg.Pool) -> int:
+    """Return the live mirror_idle_timeout_seconds from system_settings,
+    falling back to settings.mirror_idle_timeout_seconds on miss/invalid/error.
+
+    Mirrors ``_resolve_idle_timeout_seconds`` exactly — same SELECT shape,
+    same JSONB-as-text parse, same bool-rejection, same fallback discipline.
+    The team-mirror reaper (M004/S03/T02) calls this once per tick so a
+    fresh PUT to the admin API biases the very next reap pass.
+
+    Range is [60, 86400] seconds — matches the admin validator's stricter
+    floor (sub-60s would weaponize the reaper into a per-tick teardown).
+
+    Logs WARNING ``system_settings_lookup_failed key=mirror_idle_timeout_seconds
+    reason=<class>`` on any non-happy path and INFO
+    ``mirror_idle_timeout_seconds_resolved value=<n>`` (no source field)
+    so each reaper tick announces the value it is working from. Operators
+    grep ``mirror_idle_timeout_seconds_resolved`` to audit the reaper's
+    effective threshold.
+    """
+    fallback = settings.mirror_idle_timeout_seconds
+    sql = "SELECT value FROM system_settings WHERE key = $1"
+    try:
+        async with pool.acquire() as conn:
+            raw = await conn.fetchval(sql, _MIRROR_IDLE_TIMEOUT_SECONDS_KEY)
+    except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _MIRROR_IDLE_TIMEOUT_SECONDS_KEY,
+            type(exc).__name__,
+        )
+        logger.info(
+            "mirror_idle_timeout_seconds_resolved value=%d",
+            fallback,
+        )
+        return fallback
+
+    if raw is None:
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _MIRROR_IDLE_TIMEOUT_SECONDS_KEY,
+            "RowMissing",
+        )
+        logger.info(
+            "mirror_idle_timeout_seconds_resolved value=%d",
+            fallback,
+        )
+        return fallback
+
+    try:
+        value: object = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        value = None
+
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not (
+            _MIRROR_IDLE_TIMEOUT_SECONDS_MIN
+            <= value
+            <= _MIRROR_IDLE_TIMEOUT_SECONDS_MAX
+        )
+    ):
+        logger.warning(
+            "system_settings_lookup_failed key=%s reason=%s",
+            _MIRROR_IDLE_TIMEOUT_SECONDS_KEY,
+            "InvalidValue",
+        )
+        logger.info(
+            "mirror_idle_timeout_seconds_resolved value=%d",
+            fallback,
+        )
+        return fallback
+
+    logger.info(
+        "mirror_idle_timeout_seconds_resolved value=%d",
+        value,
+    )
+    return value
+
+
 async def ensure_volume_for(
     pool: asyncpg.Pool,
     user_id: str,
@@ -597,4 +685,5 @@ __all__ = [
     "get_pool",
     "_resolve_default_size_gb",
     "_resolve_idle_timeout_seconds",
+    "_resolve_mirror_idle_timeout_seconds",
 ]

@@ -65,6 +65,20 @@ class Settings(BaseSettings):
     # later in M002).
     idle_timeout_seconds: int = 15 * 60
 
+    # Per-team mirror idle reaper defaults (M004/S03). The reaper resolves
+    # ``mirror_idle_timeout_seconds`` from system_settings on every tick;
+    # this fallback is only used when the row is missing/invalid or pg
+    # is unreachable. 30 minutes matches the user-session reaper default
+    # ergonomically — tuned shorter than 24h would shred warm caches; the
+    # 60s floor in the admin validator (T01) prevents the operator from
+    # weaponizing the reaper into a per-tick teardown.
+    mirror_idle_timeout_seconds: int = 30 * 60
+
+    # How often the team-mirror reaper wakes. Env-overridable so the
+    # integration suite can run with a 1s tick. Range [1, 300] mirrors
+    # the user-session reaper.
+    mirror_reaper_interval_seconds: int = 30
+
     # Scrollback hard cap (orchestrator-side, never trust tmux to limit).
     scrollback_max_bytes: int = 100 * 1024
 

@@ -38,8 +38,13 @@ from orchestrator.reaper import start_reaper, stop_reaper
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
 from orchestrator.routes_github import router as github_router
 from orchestrator.routes_sessions import router as sessions_router
+from orchestrator.routes_team_mirror import router as team_mirror_router
 from orchestrator.routes_ws import router as ws_router
 from orchestrator.sessions import VolumeMountFailed
+from orchestrator.team_mirror_reaper import (
+    start_team_mirror_reaper,
+    stop_team_mirror_reaper,
+)
 from orchestrator.volume_store import close_pool, open_pool, set_pool
 
 logger = logging.getLogger("orchestrator")
@@ -236,15 +241,27 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # so we always start it; the loop logs `reaper_tick_skipped` for those.
     app.state.reaper_task = start_reaper(app)
 
+    # Per-team mirror reaper (M004/S03/T02). Structurally separate from
+    # the user-session reaper because their failure modes differ (D022 —
+    # reaping a mirror mid-clone breaks the user's fetch). Started AFTER
+    # the user-session reaper so the lifespan startup ordering matches
+    # the symmetrically-ordered teardown below.
+    app.state.team_mirror_reaper_task = start_team_mirror_reaper(app)
+
     logger.info("orchestrator_ready image_present=%s", _health["image_present"])
     try:
         yield
     finally:
-        # Stop the reaper FIRST, before the Redis/pg/docker handles close —
-        # the reaper's loop reads all three; tearing them out from under
-        # an in-flight tick would surface as `reaper_tick_failed` warnings
-        # on every shutdown. The 5s budget covers the worst-case in-flight
-        # `docker exec` for the kill_tmux_session call.
+        # Stop the team-mirror reaper FIRST (MEM190 — in-flight tick
+        # reads pg + docker), then the user-session reaper FIRST among
+        # the remaining three handles, then registry/pg/docker. Tearing
+        # any handle out from under an in-flight tick would surface as
+        # `team_mirror_reaper_tick_failed` / `reaper_tick_failed`
+        # warnings on every shutdown. The 5s budget per stop covers the
+        # worst-case in-flight `docker exec` / `containers.stop` call.
+        await stop_team_mirror_reaper(
+            getattr(app.state, "team_mirror_reaper_task", None)
+        )
         await stop_reaper(getattr(app.state, "reaper_task", None))
         await registry.close()
         set_registry(None)
@@ -367,6 +384,7 @@ async def _system_settings_decrypt_failed_handler(
 app.include_router(sessions_router)
 app.include_router(ws_router)
 app.include_router(github_router)
+app.include_router(team_mirror_router)
 
 
 @app.get("/v1/health")
