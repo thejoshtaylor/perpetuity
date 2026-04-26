@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     ORCHESTRATOR_BASE_URL: str = "http://orchestrator:8001"
     ORCHESTRATOR_API_KEY: str = "changethis"
 
+    # Base URL of the GitHub install host. Production stays on github.com; the
+    # M004/S02 e2e harness overrides this to point at an in-network mock so
+    # the install flow can be exercised without a real GitHub account.
+    GITHUB_APP_INSTALL_URL_BASE: str = "https://github.com"
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (

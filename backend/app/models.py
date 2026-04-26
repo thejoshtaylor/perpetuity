@@ -298,6 +298,25 @@ class GitHubAppInstallationPublic(SQLModel):
     created_at: datetime | None = None
 
 
+# Wire-shapes for the M004/S02 install handshake. Kept colocated with the
+# row model so the API surface and persistence shape evolve together.
+class InstallUrlResponse(SQLModel):
+    install_url: str
+    state: str
+    expires_at: datetime
+
+
+class InstallCallbackBody(SQLModel):
+    installation_id: int = Field(ge=1)
+    setup_action: str = Field(max_length=64)
+    state: str = Field(min_length=1)
+
+
+class InstallationsList(SQLModel):
+    data: list[GitHubAppInstallationPublic]
+    count: int
+
+
 class TeamInvitePublic(SQLModel):
     id: uuid.UUID
     code: str
