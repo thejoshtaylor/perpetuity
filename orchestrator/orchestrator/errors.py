@@ -71,3 +71,22 @@ class VolumeProvisionFailed(OrchestratorError):
         super().__init__(f"{step}:{reason}")
         self.reason = reason
         self.step = step
+
+
+class CloneCredentialLeakDetected(OrchestratorError):
+    """Post-clone .git/config sanitize verification found a credential.
+
+    Structural guarantee: never reachable in production because the
+    sanitize step runs immediately after the clone and rewrites the
+    remote URL to bare https://github.com/<owner>/<repo>.git. The
+    verification step then re-reads .git/config and asserts neither
+    `x-access-token` nor any GitHub token-prefix family appears. If it
+    does, the half-clone is rm -rf'd and this exception fires.
+
+    Mapped to 500 `clone_credential_leak` by the orchestrator route
+    handler. It is the safety net, not a routine error path.
+    """
+
+    def __init__(self, project_id: str) -> None:
+        super().__init__(f"clone_credential_leak_detected:{project_id}")
+        self.project_id = project_id

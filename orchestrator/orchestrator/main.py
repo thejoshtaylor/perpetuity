@@ -37,6 +37,7 @@ from orchestrator.errors import (
 from orchestrator.reaper import start_reaper, stop_reaper
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
 from orchestrator.routes_github import router as github_router
+from orchestrator.routes_projects import router as projects_router
 from orchestrator.routes_sessions import router as sessions_router
 from orchestrator.routes_team_mirror import router as team_mirror_router
 from orchestrator.routes_ws import router as ws_router
@@ -385,6 +386,7 @@ app.include_router(sessions_router)
 app.include_router(ws_router)
 app.include_router(github_router)
 app.include_router(team_mirror_router)
+app.include_router(projects_router)
 
 
 @app.get("/v1/health")
