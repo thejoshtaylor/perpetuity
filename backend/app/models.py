@@ -212,7 +212,12 @@ class SystemSetting(SQLModel, table=True):
     __tablename__ = "system_settings"
 
     key: str = Field(max_length=255, primary_key=True)
-    value: Any = Field(sa_column=Column(JSONB, nullable=False))
+    value: Any | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    value_encrypted: bytes | None = Field(default=None, nullable=True)
+    sensitive: bool = Field(default=False, nullable=False)
+    has_value: bool = Field(default=False, nullable=False)
     updated_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -221,7 +226,9 @@ class SystemSetting(SQLModel, table=True):
 
 class SystemSettingPublic(SQLModel):
     key: str
-    value: Any
+    sensitive: bool
+    has_value: bool
+    value: Any | None = None
     updated_at: datetime | None = None
 
 
@@ -241,6 +248,14 @@ class SystemSettingPutResponse(SQLModel):
     value: Any
     updated_at: datetime | None = None
     warnings: list[SystemSettingShrinkWarning] = []
+
+
+class SystemSettingGenerateResponse(SQLModel):
+    key: str
+    value: str
+    has_value: bool = True
+    generated: bool = True
+    updated_at: datetime | None = None
 
 
 class TeamInvitePublic(SQLModel):
