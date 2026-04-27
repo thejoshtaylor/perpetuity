@@ -27,7 +27,11 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from orchestrator.clone import _CloneExecFailed, clone_to_mirror
+from orchestrator.clone import (
+    _CloneExecFailed,
+    clone_to_mirror,
+    clone_to_user_workspace,
+)
 from orchestrator.errors import (
     CloneCredentialLeakDetected,
     DockerUnavailable,
@@ -149,6 +153,102 @@ async def post_materialize_mirror(
     return MaterializeMirrorResponse(
         result=str(result["result"]),
         duration_ms=int(result["duration_ms"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/projects/{project_id}/materialize-user (M004/S04/T03)
+# ---------------------------------------------------------------------------
+
+
+class MaterializeUserRequest(BaseModel):
+    """POST /v1/projects/{project_id}/materialize-user body.
+
+    The backend fills these from the project + the calling user — the
+    orchestrator does not look anything up itself (D016: orchestrator is
+    trusted to obey the shared-secret boundary, but ownership is enforced
+    on the backend).
+    """
+
+    user_id: uuid.UUID
+    team_id: uuid.UUID
+    project_name: str = Field(min_length=1, max_length=255)
+
+
+class MaterializeUserResponse(BaseModel):
+    """Body of POST /v1/projects/{project_id}/materialize-user.
+
+    ``result`` is ``'created'`` for a fresh clone or ``'reused'`` when the
+    user already had this project cloned and we short-circuited.
+    ``workspace_path`` is the absolute path inside the user container.
+    """
+
+    result: str
+    duration_ms: int
+    workspace_path: str
+
+
+@router.post(
+    "/{project_id}/materialize-user",
+    response_model=MaterializeUserResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def post_materialize_user(
+    project_id: uuid.UUID,
+    body: MaterializeUserRequest,
+    request: Request,
+) -> MaterializeUserResponse:
+    """Clone the team-mirror's bare repo into the user's workspace.
+
+    Idempotent: a re-call after a successful clone returns
+    ``{result:'reused', duration_ms:0}`` without re-cloning.
+
+    Failure modes:
+      - 502 ``user_clone_failed`` — git clone returned non-zero
+        (reason=``user_clone_exit_<code>``). The most common cause in
+        steady-state is a MEM264 regression — name resolution failed
+        because the user container is no longer on ``perpetuity_default``.
+      - 500 ``clone_credential_leak`` — defensive safety net (see
+        clone.clone_to_user_workspace docstring).
+      - 503 ``docker_unavailable`` — docker daemon trouble (app handler).
+    """
+    docker = request.app.state.docker
+    if docker is None:
+        raise DockerUnavailable("docker_handle_unavailable_in_lifespan")
+
+    pool = get_pool()
+
+    try:
+        result = await clone_to_user_workspace(
+            docker,
+            pool,
+            user_id=str(body.user_id),
+            team_id=str(body.team_id),
+            project_id=str(project_id),
+            project_name=body.project_name,
+        )
+    except _CloneExecFailed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "detail": "user_clone_failed",
+                "status": exc.exit_code,
+                "reason": f"user_clone_exit_{exc.exit_code}",
+            },
+        )
+    except CloneCredentialLeakDetected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "detail": "clone_credential_leak",
+                "project_id": exc.project_id,
+            },
+        )
+
+    return MaterializeUserResponse(
+        result=str(result["result"]),
+        duration_ms=int(result["duration_ms"]),
+        workspace_path=str(result["workspace_path"]),
     )
 
 

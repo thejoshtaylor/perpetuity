@@ -45,6 +45,15 @@ from orchestrator.volume_store import ensure_volume_for
 logger = logging.getLogger("orchestrator")
 
 
+# User-session containers attach to the compose network so they can resolve
+# `team-mirror-<first8>` by DNS for the user-side `git clone git://...` hop
+# (D023). Without this, the user-side clone fails with "Could not resolve
+# host" — see MEM264 for the fingerprint of the regression that motivated
+# this attach. The mirror container has used the same NetworkMode key since
+# S03; this is just the symmetric attach on the user side.
+_USER_NETWORK = "perpetuity_default"
+
+
 class VolumeMountFailed(OrchestratorError):
     """Bind-mount source dir could not be created on the host.
 
@@ -139,6 +148,11 @@ def _build_container_config(
             # lifecycle. A respawning container would ressurect after the
             # reaper kills it, defeating the quota model.
             "RestartPolicy": {"Name": "no"},
+            # Attach to the compose network so the user-side `git clone
+            # git://team-mirror-<first8>:9418/...` can resolve the mirror
+            # by DNS (MEM264). The mirror container already attaches to
+            # the same network in team_mirror._build_team_mirror_container_config.
+            "NetworkMode": _USER_NETWORK,
         },
         # Open a stdin/tty pair on the container itself so future S02
         # operations (in-container losetup helpers) can spawn child execs
@@ -322,6 +336,14 @@ async def provision_container(
         container.id[:12],
         user_id,
         team_id,
+    )
+    # MEM264 verification surface — first provision logs the network attach
+    # explicitly so a future agent grepping for the resolve_failed regression
+    # can confirm the user container actually joined `perpetuity_default`.
+    logger.info(
+        "network_mode_attached_to_user_container container_id=%s network=%s",
+        container.id[:12],
+        _USER_NETWORK,
     )
     return container.id, True
 

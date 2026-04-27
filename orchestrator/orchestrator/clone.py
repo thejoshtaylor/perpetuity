@@ -57,7 +57,9 @@ from orchestrator.github_tokens import (
     _token_prefix,
     get_installation_token,
 )
+from orchestrator.sessions import provision_container
 from orchestrator.team_mirror import (
+    _network_addr,
     _team_mirror_container_name,
     ensure_team_mirror,
 )
@@ -448,11 +450,243 @@ async def clone_to_mirror(
     return {"result": "created", "duration_ms": duration_ms}
 
 
+def _user_workspace_path(user_id: str, team_id: str, project_name: str) -> str:
+    """Path inside the user container where the project lands.
+
+    Per D004: the user's bind-mount root is ``/workspaces/<team_id>/`` and
+    the orchestrator host's mount source is namespaced by user (so two
+    users on the same team don't collide). Inside the user container we
+    expose the per-user/per-team/per-project path explicitly so the FE
+    can navigate to the same shape as `git clone` produced.
+    """
+    return f"/workspaces/{user_id}/{team_id}/{project_name}"
+
+
+async def _project_already_cloned_into_workspace(
+    docker: aiodocker.Docker,
+    container_id: str,
+    *,
+    workspace_path: str,
+) -> bool:
+    """True if ``<workspace_path>/.git/HEAD`` exists inside the user container.
+
+    Mirror-side reuse is keyed on /repos/<id>.git/HEAD; user-side reuse is
+    keyed on the user's workspace .git/HEAD. Same `test -f` shape so an
+    absent path returns clean exit 1 (no stderr noise).
+    """
+    head = f"{workspace_path}/.git/HEAD"
+    _out, code = await _exec_with_env(
+        docker,
+        container_id,
+        ["test", "-f", head],
+    )
+    return code == 0
+
+
+async def clone_to_user_workspace(
+    docker: aiodocker.Docker,
+    pool: asyncpg.Pool,
+    *,
+    user_id: str,
+    team_id: str,
+    project_id: str,
+    project_name: str,
+) -> dict[str, Any]:
+    """Materialize the team-mirror's bare repo into the user's workspace.
+
+    The second hop of the two-hop clone path (MEM228). Steps:
+
+      1. ``provision_container`` (idempotent) — ensure the (user, team)
+         workspace container is up. Reuses an existing running container
+         if labels match (MEM264: every fresh container also attaches to
+         ``perpetuity_default`` — that's the change in (a) of this task).
+      2. Idempotency short-circuit — if ``<workspace_path>/.git/HEAD``
+         already exists for the same project, return
+         ``{result:'reused', duration_ms:0, workspace_path}`` without
+         re-cloning. The user can re-open a project they were already
+         working in without losing local edits.
+      3. ``mkdir -p <parent>`` so ``git clone`` doesn't fail on a missing
+         user-team prefix dir on the very first project for this pair.
+      4. Docker-exec ``git clone git://team-mirror-<first8>:9418/<id>.git
+         <workspace_path>``. The transport is credential-free — no env
+         vars, no TOKEN, no auth (D023). Failure here typically means
+         ``Could not resolve host`` (the MEM264 regression fingerprint)
+         or the mirror is mid-clone / down.
+      5. Verify post-conditions: the directory exists, ``.git/HEAD`` is
+         present, and the remote URL is the bare ``git://...`` URL — never
+         contains ``x-access-token`` and never contains ``https://github.com``
+         (those would mean the mirror leaked its sanitize step somehow).
+
+    Returns ``{result:'created'|'reused', duration_ms:int, workspace_path}``.
+
+    Failure surfaces (raised, not returned):
+      DockerUnavailable               — daemon trouble (route → 503)
+      _CloneExecFailed                — git clone non-zero (route → 502
+                                        with reason=user_clone_exit_<code>);
+                                        the most common cause in steady-state
+                                        is a MEM264 regression
+                                        (resolve_failed)
+    """
+    workspace_path = _user_workspace_path(user_id, team_id, project_name)
+
+    # 1. Ensure the user container is up + on perpetuity_default. The
+    #    `provision_container` helper is idempotent; on a fresh provision
+    #    it also emits `network_mode_attached_to_user_container` (the
+    #    MEM264 verification surface).
+    container_id, _created = await provision_container(
+        docker, user_id, team_id, pg=pool
+    )
+
+    # 2. Idempotency short-circuit. If the user already has this project
+    #    cloned, skip — re-open without losing local edits.
+    if await _project_already_cloned_into_workspace(
+        docker, container_id, workspace_path=workspace_path
+    ):
+        logger.info(
+            "user_clone_completed user_id=%s team_id=%s project_id=%s "
+            "result=%s duration_ms=%d",
+            user_id,
+            team_id,
+            project_id,
+            "reused",
+            0,
+        )
+        return {
+            "result": "reused",
+            "duration_ms": 0,
+            "workspace_path": workspace_path,
+        }
+
+    started = time.monotonic()
+    logger.info(
+        "user_clone_started user_id=%s team_id=%s project_id=%s",
+        user_id,
+        team_id,
+        project_id,
+    )
+
+    parent = f"/workspaces/{user_id}/{team_id}"
+    network_addr = _network_addr(team_id)
+    git_url = f"git://{network_addr}/{project_id}.git"
+
+    # 3. Make the parent dir so the first `git clone` doesn't fail on a
+    #    missing user-team prefix for a brand-new (user, team) pair.
+    _out, code = await _exec_with_env(
+        docker,
+        container_id,
+        ["mkdir", "-p", parent],
+    )
+    if code != 0:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        logger.error(
+            "user_clone_failed user_id=%s team_id=%s project_id=%s "
+            "reason=%s duration_ms=%d",
+            user_id,
+            team_id,
+            project_id,
+            f"mkdir_parent_exit_{code}",
+            duration_ms,
+        )
+        raise _CloneExecFailed(code, "mkdir_user_parent")
+
+    # 4. The credential-free clone. No env dict — git daemon needs no auth.
+    _out, code = await _exec_with_env(
+        docker,
+        container_id,
+        ["git", "clone", git_url, workspace_path],
+    )
+    if code != 0:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        # The most likely steady-state failure is `Could not resolve host
+        # team-mirror-...` (MEM264 regression). Don't surface stderr — git
+        # can echo the URL back which has no secrets but bloats logs.
+        logger.error(
+            "user_clone_failed user_id=%s team_id=%s project_id=%s "
+            "reason=%s duration_ms=%d",
+            user_id,
+            team_id,
+            project_id,
+            f"git_clone_exit_{code}",
+            duration_ms,
+        )
+        raise _CloneExecFailed(code, "user_git_clone")
+
+    # 5. Post-condition: read remote.origin.url and assert it's the bare
+    #    git:// URL — defense-in-depth against a mirror-side regression
+    #    that somehow left an https://x-access-token URL on the bare repo.
+    _out_url, code = await _exec_with_env(
+        docker,
+        container_id,
+        [
+            "git",
+            f"--git-dir={workspace_path}/.git",
+            "config",
+            "--get",
+            "remote.origin.url",
+        ],
+    )
+    if code != 0:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        logger.error(
+            "user_clone_failed user_id=%s team_id=%s project_id=%s "
+            "reason=%s duration_ms=%d",
+            user_id,
+            team_id,
+            project_id,
+            f"verify_remote_exit_{code}",
+            duration_ms,
+        )
+        raise _CloneExecFailed(code, "verify_remote_url")
+
+    remote_url = _out_url.strip()
+    # Hard assertion: must be the credential-free git:// URL. If it isn't,
+    # the user just got a credentialed remote planted on their disk —
+    # treat as the credential-leak class even though the leak is on the
+    # user side rather than the mirror side. Reuse the same exception so
+    # the route layer's 500 mapping works without a new error class.
+    if (
+        "x-access-token" in remote_url.lower()
+        or remote_url.startswith("https://")
+        or "github.com" in remote_url.lower()
+        or not remote_url.startswith("git://")
+    ):
+        logger.error(
+            "user_clone_credential_leak_detected project_id=%s",
+            project_id,
+        )
+        # Best-effort cleanup: rm -rf the half-clone so a future re-open
+        # doesn't find the tainted .git/config.
+        await _exec_with_env(
+            docker,
+            container_id,
+            ["rm", "-rf", workspace_path],
+        )
+        raise CloneCredentialLeakDetected(project_id)
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    logger.info(
+        "user_clone_completed user_id=%s team_id=%s project_id=%s "
+        "result=%s duration_ms=%d",
+        user_id,
+        team_id,
+        project_id,
+        "created",
+        duration_ms,
+    )
+    return {
+        "result": "created",
+        "duration_ms": duration_ms,
+        "workspace_path": workspace_path,
+    }
+
+
 __all__ = [
     "clone_to_mirror",
+    "clone_to_user_workspace",
     "_CloneExecFailed",
     "_LEAK_FINGERPRINTS",
     "_bare_repo_path",
     "_tmp_repo_path",
+    "_user_workspace_path",
     "_exec_with_env",
 ]

@@ -31,9 +31,11 @@ Logging discipline (slice observability contract):
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlmodel import col, select
 
@@ -42,6 +44,7 @@ from app.api.team_access import (
     assert_caller_is_team_admin,
     assert_caller_is_team_member,
 )
+from app.core.config import settings
 from app.models import (
     GitHubAppInstallation,
     Project,
@@ -62,6 +65,17 @@ router = APIRouter(tags=["projects"])
 
 
 _VALID_MODES = ("auto", "rule", "manual_workflow")
+
+
+# Orchestrator client timeout — generous because the chained
+# ensure → materialize-mirror → materialize-user can include a real
+# `git clone` over the network on cold first open. The connect timeout
+# stays short so a stopped orchestrator surfaces as a fast 503.
+_ORCH_TIMEOUT = httpx.Timeout(60.0, connect=3.0)
+
+
+def _orch_headers() -> dict[str, str]:
+    return {"X-Orchestrator-Key": settings.ORCHESTRATOR_API_KEY}
 
 
 # ---------------------------------------------------------------------------
@@ -479,3 +493,150 @@ def put_project_push_rule(
         current_user.id,
     )
     return _push_rule_to_public(rule)
+
+
+# ---------------------------------------------------------------------------
+# POST /projects/{id}/open — chained ensure → materialize-mirror → materialize-user
+# ---------------------------------------------------------------------------
+
+
+def _orch_unavailable_503() -> HTTPException:
+    """Construct a 503 with the same shape as backend.sessions.
+
+    Centralized so the integration tests can grep for one log marker
+    (`orchestrator_unavailable`) regardless of which orchestrator hop
+    actually failed in the chain.
+    """
+    logger.warning(
+        "orchestrator_unavailable url=%s op=project_open",
+        settings.ORCHESTRATOR_BASE_URL,
+    )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="orchestrator_unavailable",
+    )
+
+
+def _propagate_orch_502(orch_response: httpx.Response) -> HTTPException:
+    """Forward an orchestrator 502 verbatim to the user.
+
+    The orchestrator's 502 body is ``{detail: "user_clone_failed", reason:
+    "user_clone_exit_128", ...}`` (or the mirror equivalent). The FE
+    branches on `reason` to decide whether to show "GitHub auth failed"
+    vs "your team's mirror is down" vs "we can't resolve the mirror DNS"
+    — preserving the body verbatim is the contract.
+    """
+    try:
+        body = orch_response.json()
+    except Exception:
+        body = {"detail": "orchestrator_clone_failed"}
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY, detail=body.get("detail", body)
+    )
+
+
+@router.post("/projects/{project_id}/open")
+async def open_project(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Materialize the project into the calling user's workspace. Member-gated.
+
+    The chain (D016 trust boundary: backend gates ownership, orchestrator
+    obeys shared-secret):
+
+      1. Load the project + assert caller is a team member (404 on either
+         missing or cross-team — MEM263 enumeration block).
+      2. POST /v1/teams/{team_id}/mirror/ensure (idempotent — calling
+         every time is fine and matches the documented contract; orchestrator
+         no-ops when the mirror already runs).
+      3. POST /v1/projects/{project_id}/materialize-mirror with
+         {team_id, repo_full_name, installation_id} pulled from the project
+         row.
+      4. POST /v1/projects/{project_id}/materialize-user with
+         {user_id, team_id, project_name}.
+
+    Returns ``{workspace_path, mirror_status, user_status, duration_ms}``.
+
+    Failure modes:
+      - 404 ``project_not_found`` (missing or cross-team caller).
+      - 503 ``orchestrator_unavailable`` (any hop unreachable).
+      - 502 — propagated verbatim from the failing hop's body. Common
+        reasons: ``github_clone_failed`` (mirror), ``user_clone_failed``
+        (user-side; reason=``user_clone_exit_128`` if MEM264 regressed).
+    """
+    project = _load_project_for_member(session, project_id, current_user.id)
+
+    base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
+    started = time.monotonic()
+
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            # 2. ensure mirror is up. The orchestrator's ensure is
+            #    idempotent so we always call — no need to track state.
+            r_ensure = await c.post(
+                f"{base}/v1/teams/{project.team_id}/mirror/ensure",
+                headers=_orch_headers(),
+            )
+            if r_ensure.status_code >= 500:
+                # 503 from orchestrator → 503 to user (degraded infra).
+                # 502/4xx surfaces as the standard 502 propagation.
+                if r_ensure.status_code == 503:
+                    raise _orch_unavailable_503()
+                raise _propagate_orch_502(r_ensure)
+            if r_ensure.status_code != 200:
+                raise _propagate_orch_502(r_ensure)
+
+            # 3. clone GitHub → mirror.
+            r_mirror = await c.post(
+                f"{base}/v1/projects/{project_id}/materialize-mirror",
+                headers=_orch_headers(),
+                json={
+                    "team_id": str(project.team_id),
+                    "repo_full_name": project.github_repo_full_name,
+                    "installation_id": project.installation_id,
+                },
+            )
+            if r_mirror.status_code == 503:
+                raise _orch_unavailable_503()
+            if r_mirror.status_code != 200:
+                raise _propagate_orch_502(r_mirror)
+            mirror_body = r_mirror.json()
+
+            # 4. clone mirror → user workspace.
+            r_user = await c.post(
+                f"{base}/v1/projects/{project_id}/materialize-user",
+                headers=_orch_headers(),
+                json={
+                    "user_id": str(current_user.id),
+                    "team_id": str(project.team_id),
+                    "project_name": project.name,
+                },
+            )
+            if r_user.status_code == 503:
+                raise _orch_unavailable_503()
+            if r_user.status_code != 200:
+                raise _propagate_orch_502(r_user)
+            user_body = r_user.json()
+    except (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+    ):
+        raise _orch_unavailable_503()
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    logger.info(
+        "project_opened project_id=%s user_id=%s duration_ms=%d",
+        project_id,
+        current_user.id,
+        duration_ms,
+    )
+    return {
+        "workspace_path": user_body["workspace_path"],
+        "mirror_status": mirror_body["result"],
+        "user_status": user_body["result"],
+        "duration_ms": duration_ms,
+    }
