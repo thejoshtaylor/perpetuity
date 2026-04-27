@@ -27,8 +27,11 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from orchestrator.auto_push import run_auto_push
 from orchestrator.clone import (
     _CloneExecFailed,
+    _install_post_receive_hook,
+    _uninstall_post_receive_hook,
     clone_to_mirror,
     clone_to_user_workspace,
 )
@@ -37,6 +40,7 @@ from orchestrator.errors import (
     DockerUnavailable,
 )
 from orchestrator.github_tokens import InstallationTokenMintFailed
+from orchestrator.team_mirror import _find_team_mirror_container
 from orchestrator.volume_store import get_pool
 
 logger = logging.getLogger("orchestrator")
@@ -249,6 +253,204 @@ async def post_materialize_user(
         result=str(result["result"]),
         duration_ms=int(result["duration_ms"]),
         workspace_path=str(result["workspace_path"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Hook management endpoints (M004/S04/T04)
+# ---------------------------------------------------------------------------
+
+
+class HookManagementRequest(BaseModel):
+    """POST /v1/projects/{project_id}/(install|uninstall)-push-hook body.
+
+    The backend resolves ``team_id`` from the project row before calling.
+    Both endpoints are no-ops if the team's mirror container does not
+    currently exist — the next clone-to-mirror will install/skip per the
+    persisted rule, so the lifecycle eventually re-converges.
+    """
+
+    team_id: uuid.UUID
+
+
+class HookManagementResponse(BaseModel):
+    """Body of the install/uninstall hook endpoints.
+
+    ``result`` is one of:
+      - 'installed'        — hook written to the mirror's bare repo
+      - 'uninstalled'      — hook removed (file may or may not have existed)
+      - 'mirror_missing'   — no running mirror container for this team
+                             (no-op; next clone-to-mirror will reconverge)
+      - 'rule_not_auto'    — install attempted but mode is not 'auto'
+                             (no hook installed)
+    """
+
+    result: str
+
+
+@router.post(
+    "/{project_id}/install-push-hook",
+    response_model=HookManagementResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def post_install_push_hook(
+    project_id: uuid.UUID,
+    body: HookManagementRequest,
+    request: Request,
+) -> HookManagementResponse:
+    """Install the post-receive hook for ``project_id`` on the team mirror.
+
+    Called by the backend's PUT /push-rule when transitioning a project
+    to mode=auto. No-op if the mirror container does not currently exist
+    — the next clone-to-mirror will install the hook per the persisted
+    rule (the rule is the source of truth; the hook is derived state).
+    """
+    docker = request.app.state.docker
+    if docker is None:
+        raise DockerUnavailable("docker_handle_unavailable_in_lifespan")
+
+    team_id_str = str(body.team_id)
+    mirror_id = await _find_team_mirror_container(docker, team_id_str)
+    if mirror_id is None:
+        logger.info(
+            "post_receive_hook_install_skipped_no_mirror "
+            "project_id=%s team_id=%s",
+            project_id,
+            team_id_str,
+        )
+        return HookManagementResponse(result="mirror_missing")
+
+    try:
+        installed = await _install_post_receive_hook(
+            docker,
+            mirror_container_id=mirror_id,
+            project_id=str(project_id),
+            push_rule_mode="auto",
+        )
+    except _CloneExecFailed as exc:
+        # Hook install failure on the management endpoint is a 502 — the
+        # rule was already persisted by the backend, but the derived state
+        # didn't land. The backend logs WARNING and does NOT fail the PUT;
+        # surface 502 here so the test surface can distinguish from 200.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "detail": "post_receive_hook_install_failed",
+                "exit_code": exc.exit_code,
+                "op": exc.op,
+            },
+        )
+
+    if not installed:
+        return HookManagementResponse(result="rule_not_auto")
+    return HookManagementResponse(result="installed")
+
+
+@router.post(
+    "/{project_id}/uninstall-push-hook",
+    response_model=HookManagementResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def post_uninstall_push_hook(
+    project_id: uuid.UUID,
+    body: HookManagementRequest,
+    request: Request,
+) -> HookManagementResponse:
+    """Remove the post-receive hook for ``project_id`` from the team mirror.
+
+    Called by the backend's PUT /push-rule when transitioning a project
+    away from mode=auto. No-op if the mirror container does not currently
+    exist — there's nothing to remove, and the next clone-to-mirror will
+    correctly skip hook install per the persisted (non-auto) rule.
+    """
+    docker = request.app.state.docker
+    if docker is None:
+        raise DockerUnavailable("docker_handle_unavailable_in_lifespan")
+
+    team_id_str = str(body.team_id)
+    mirror_id = await _find_team_mirror_container(docker, team_id_str)
+    if mirror_id is None:
+        logger.info(
+            "post_receive_hook_uninstall_skipped_no_mirror "
+            "project_id=%s team_id=%s",
+            project_id,
+            team_id_str,
+        )
+        return HookManagementResponse(result="mirror_missing")
+
+    await _uninstall_post_receive_hook(
+        docker,
+        mirror_container_id=mirror_id,
+        project_id=str(project_id),
+    )
+    return HookManagementResponse(result="uninstalled")
+
+
+# ---------------------------------------------------------------------------
+# Auto-push callback (M004/S04/T04)
+# ---------------------------------------------------------------------------
+
+
+class AutoPushCallbackResponse(BaseModel):
+    """Body of POST /v1/projects/{project_id}/auto-push-callback.
+
+    The post-receive hook ignores the response (it has `|| true` on the
+    wget), but downstream tooling and tests benefit from a structured
+    body. ``result`` carries the same shape returned by ``run_auto_push``.
+    """
+
+    result: str
+    exit_code: int | None = None
+    duration_ms: int | None = None
+    stderr_short: str | None = None
+
+
+@router.post(
+    "/{project_id}/auto-push-callback",
+    response_model=AutoPushCallbackResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def post_auto_push_callback(
+    project_id: uuid.UUID,
+    request: Request,
+) -> AutoPushCallbackResponse:
+    """Auto-push trigger from the mirror's post-receive hook.
+
+    The endpoint is gated by the orchestrator-wide SharedSecretMiddleware
+    (the hook script presents X-Orchestrator-Key from PERPETUITY_ORCH_KEY
+    in the mirror's env). The body is empty by convention; the project_id
+    in the path is the only input — the hook script writes nothing else.
+
+    Always returns 200 with the run_auto_push result body. The post-receive
+    hook ignores the status code anyway (auto-push is best-effort by D024).
+    """
+    docker = request.app.state.docker
+    if docker is None:
+        raise DockerUnavailable("docker_handle_unavailable_in_lifespan")
+
+    pool = get_pool()
+    redis_client = _redis_client_from(request)
+
+    result = await run_auto_push(
+        docker,
+        pool,
+        project_id=str(project_id),
+        redis_client=redis_client,
+    )
+
+    return AutoPushCallbackResponse(
+        result=str(result.get("result", "unknown")),
+        exit_code=(
+            int(result["exit_code"]) if "exit_code" in result else None
+        ),
+        duration_ms=(
+            int(result["duration_ms"]) if "duration_ms" in result else None
+        ),
+        stderr_short=(
+            str(result["stderr_short"])
+            if "stderr_short" in result
+            else None
+        ),
     )
 
 

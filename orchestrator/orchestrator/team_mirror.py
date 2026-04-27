@@ -127,6 +127,15 @@ def _build_team_mirror_container_config(
     nascent-restart case (we never restart inside the container today,
     but the flag is cheap insurance).
     """
+    # PERPETUITY_ORCH_KEY is baked into the mirror container's env so the
+    # post-receive hook installed at clone-time (M004/S04/T04) can present
+    # the X-Orchestrator-Key header on the auto-push callback. The env var
+    # is the only auth carrier that survives across docker exec calls into
+    # the mirror — the hook itself is a tiny `wget` that has no other way
+    # to learn the key. Empty-string fallback is intentional: a misconfigured
+    # orchestrator already loud-fails at boot via require_boot_key(), so
+    # this code path is unreachable in practice. The empty string keeps
+    # tests with SKIP_PG_POOL_ON_BOOT happy.
     return {
         "Image": settings.workspace_image,
         # `git daemon` foreground + bind to all interfaces in the
@@ -143,6 +152,9 @@ def _build_team_mirror_container_config(
             "--enable=receive-pack",
             f"--port={_MIRROR_PORT}",
             "--listen=0.0.0.0",
+        ],
+        "Env": [
+            f"PERPETUITY_ORCH_KEY={settings.orchestrator_api_key or ''}",
         ],
         "ExposedPorts": {f"{_MIRROR_PORT}/tcp": {}},
         "Labels": {

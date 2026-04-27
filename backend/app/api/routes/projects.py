@@ -438,11 +438,56 @@ def get_project_push_rule(
     return _push_rule_to_public(rule)
 
 
+async def _orch_call_hook_endpoint(
+    *,
+    project_id: uuid.UUID,
+    team_id: uuid.UUID,
+    op: str,
+) -> None:
+    """POST install-push-hook / uninstall-push-hook on the orchestrator.
+
+    Failures are logged WARNING and SWALLOWED — the rule write is the
+    source of truth, the hook is derived state. Either:
+      (a) the next clone-to-mirror will install/skip per the persisted
+          rule, or
+      (b) a future PUT push-rule with the same target mode will retry
+    Per slice plan: "failures are logged WARNING but DO NOT fail the PUT".
+    """
+    base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
+    url = f"{base}/v1/projects/{project_id}/{op}"
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            r = await c.post(
+                url,
+                headers=_orch_headers(),
+                json={"team_id": str(team_id)},
+            )
+        if r.status_code != 200:
+            logger.warning(
+                "push_hook_orch_call_non_200 op=%s project_id=%s status=%d",
+                op,
+                project_id,
+                r.status_code,
+            )
+    except (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        httpx.HTTPError,
+    ) as exc:
+        logger.warning(
+            "push_hook_orch_call_unreachable op=%s project_id=%s reason=%s",
+            op,
+            project_id,
+            type(exc).__name__,
+        )
+
+
 @router.put(
     "/projects/{project_id}/push-rule",
     response_model=ProjectPushRulePublic,
 )
-def put_project_push_rule(
+async def put_project_push_rule(
     *,
     session: SessionDep,
     current_user: CurrentUser,
@@ -457,8 +502,15 @@ def put_project_push_rule(
       - mode=manual_workflow   → workflow_id is required
       - mode=auto              → both extras stored as NULL
     Unknown modes return 422.
+
+    On a transition to/from mode=auto the handler also fires a one-shot
+    POST to the orchestrator's install-push-hook / uninstall-push-hook
+    endpoint to keep the mirror's hook state in sync with the rule. The
+    rule write is the source of truth — the hook call is best-effort and
+    its failures are logged WARNING but do NOT fail the PUT (the next
+    clone-to-mirror reconverges hook state per the persisted rule).
     """
-    _load_project_for_admin(session, project_id, current_user.id)
+    project = _load_project_for_admin(session, project_id, current_user.id)
 
     mode, branch_pattern, workflow_id = _validate_push_rule_body(body)
 
@@ -466,6 +518,8 @@ def put_project_push_rule(
     if rule is None:
         # Defensive — should never happen post-create.
         raise HTTPException(status_code=404, detail="push_rule_not_found")
+
+    previous_mode = rule.mode
 
     rule.mode = mode
     rule.branch_pattern = branch_pattern
@@ -492,6 +546,23 @@ def put_project_push_rule(
         mode,
         current_user.id,
     )
+
+    # Hook lifecycle on auto<->non-auto transitions only. Rule changes that
+    # stay within non-auto (rule <-> manual_workflow) need no hook touch
+    # because neither mode installs a hook.
+    if previous_mode != "auto" and mode == "auto":
+        await _orch_call_hook_endpoint(
+            project_id=project_id,
+            team_id=project.team_id,
+            op="install-push-hook",
+        )
+    elif previous_mode == "auto" and mode != "auto":
+        await _orch_call_hook_endpoint(
+            project_id=project_id,
+            team_id=project.team_id,
+            op="uninstall-push-hook",
+        )
+
     return _push_rule_to_public(rule)
 
 

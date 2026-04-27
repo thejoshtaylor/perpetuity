@@ -232,6 +232,11 @@ class _FakeConn:
             )
             self._pool.row_by_team[team_id] = row
             return row
+        # M004/S04/T04 added a rule-mode lookup at the end of clone_to_mirror's
+        # success path. These tests do not seed a project_push_rules row, so
+        # returning None correctly skips the post-receive hook install.
+        if "FROM project_push_rules" in sql:
+            return None
         raise AssertionError(f"unexpected fetchrow sql: {sql}")
 
     async def execute(self, sql: str, *args: Any) -> str:

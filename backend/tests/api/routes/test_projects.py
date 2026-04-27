@@ -784,3 +784,226 @@ def test_endpoints_require_authentication(client: TestClient) -> None:
     ):
         r = client.get(path)
         assert r.status_code == 401, (path, r.status_code)
+
+
+# ---------------------------------------------------------------------------
+# PUT /push-rule hook transitions (M004/S04/T04)
+# ---------------------------------------------------------------------------
+
+
+# Mirror the _FakeAsyncClient pattern from test_projects_open.py — keep the
+# helper module-local rather than promoting to conftest because the route's
+# `httpx.AsyncClient` import path differs across modules under test.
+
+
+class _FakeResponse:
+    def __init__(
+        self,
+        status_code: int,
+        json_body: object | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self._json = json_body
+        self.request = httpx.Request("POST", "http://fake")
+
+    def json(self) -> object:
+        return self._json
+
+
+class _FakeAsyncClient:
+    """Stub for `httpx.AsyncClient` as imported by `app.api.routes.projects`.
+
+    Records every POST so transition tests can assert which orchestrator
+    hop the PUT /push-rule fired (or DIDN'T fire).
+    """
+
+    last_calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def __init__(self, route_map: dict[tuple[str, str], object]) -> None:
+        self._routes = route_map
+
+    async def __aenter__(self) -> "_FakeAsyncClient":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def _resolve(self, method: str, url: str) -> object:
+        for (m, suffix), handler in self._routes.items():
+            if m == method and url.endswith(suffix):
+                return handler
+        # Default 200 for any unmatched route — keeps the test from caring
+        # about ordering details when the focus is "did the hook fire?".
+        return _FakeResponse(200, {"result": "installed"})
+
+    async def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        json: dict[str, Any] | None = None,
+        **_: object,
+    ) -> _FakeResponse:
+        type(self).last_calls.append(("POST", url, json))
+        handler = self._resolve("POST", url)
+        if isinstance(handler, Exception):
+            raise handler
+        assert isinstance(handler, _FakeResponse)
+        return handler
+
+
+def _install_fake_orch(
+    monkeypatch: pytest.MonkeyPatch,
+    routes: dict[tuple[str, str], object] | None = None,
+) -> type[_FakeAsyncClient]:
+    import app.api.routes.projects as projects_mod
+
+    _FakeAsyncClient.last_calls = []
+
+    def _factory(*_args: object, **_kwargs: object) -> _FakeAsyncClient:
+        return _FakeAsyncClient(routes or {})
+
+    monkeypatch.setattr(projects_mod.httpx, "AsyncClient", _factory)
+    return _FakeAsyncClient
+
+
+def test_put_push_rule_transition_to_auto_installs_hook(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """manual_workflow → auto fires POST install-push-hook on the orchestrator."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "PRTransitAuto")
+    _seed_installation(db, team_id=team_id, installation_id=20020)
+    pr = _create_project(
+        client, cookies, team_id=team_id, installation_id=20020
+    )
+    fake = _install_fake_orch(monkeypatch)
+
+    # Default mode is manual_workflow; PUT to auto.
+    r = client.put(
+        f"{API}/projects/{pr['id']}/push-rule",
+        json={"mode": "auto"},
+        cookies=cookies,
+    )
+    assert r.status_code == 200, r.text
+
+    posts = [c for c in fake.last_calls if c[0] == "POST"]
+    install_calls = [
+        c for c in posts if c[1].endswith(f"/v1/projects/{pr['id']}/install-push-hook")
+    ]
+    assert len(install_calls) == 1, posts
+    body = install_calls[0][2]
+    assert body == {"team_id": team_id}
+
+
+def test_put_push_rule_transition_from_auto_uninstalls_hook(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """auto → rule fires POST uninstall-push-hook on the orchestrator."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "PRTransitOff")
+    _seed_installation(db, team_id=team_id, installation_id=21021)
+    pr = _create_project(
+        client, cookies, team_id=team_id, installation_id=21021
+    )
+
+    # First flip to auto — fires install (which we'll reset on the next monkey).
+    fake = _install_fake_orch(monkeypatch)
+    r1 = client.put(
+        f"{API}/projects/{pr['id']}/push-rule",
+        json={"mode": "auto"},
+        cookies=cookies,
+    )
+    assert r1.status_code == 200, r1.text
+
+    # Reset call log + re-install fake (last_calls is class-level state).
+    fake = _install_fake_orch(monkeypatch)
+    r2 = client.put(
+        f"{API}/projects/{pr['id']}/push-rule",
+        json={"mode": "rule", "branch_pattern": "main"},
+        cookies=cookies,
+    )
+    assert r2.status_code == 200, r2.text
+
+    posts = [c for c in fake.last_calls if c[0] == "POST"]
+    uninstall_calls = [
+        c for c in posts
+        if c[1].endswith(f"/v1/projects/{pr['id']}/uninstall-push-hook")
+    ]
+    assert len(uninstall_calls) == 1, posts
+    body = uninstall_calls[0][2]
+    assert body == {"team_id": team_id}
+
+
+def test_put_push_rule_no_transition_does_not_call_orchestrator(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """rule → manual_workflow does NOT call the hook endpoints (neither side is auto)."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "PRNoTransit")
+    _seed_installation(db, team_id=team_id, installation_id=22022)
+    pr = _create_project(
+        client, cookies, team_id=team_id, installation_id=22022
+    )
+
+    # Set mode=rule first.
+    r0 = client.put(
+        f"{API}/projects/{pr['id']}/push-rule",
+        json={"mode": "rule", "branch_pattern": "main"},
+        cookies=cookies,
+    )
+    assert r0.status_code == 200, r0.text
+
+    # Now flip to manual_workflow; reset the fake call log.
+    fake = _install_fake_orch(monkeypatch)
+    r1 = client.put(
+        f"{API}/projects/{pr['id']}/push-rule",
+        json={"mode": "manual_workflow", "workflow_id": "deploy.yml"},
+        cookies=cookies,
+    )
+    assert r1.status_code == 200, r1.text
+
+    posts = [c for c in fake.last_calls if c[0] == "POST"]
+    assert posts == []
+
+
+def test_put_push_rule_orch_unreachable_does_not_fail_put(
+    client: TestClient,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Orchestrator unreachable on hook-install → PUT still 200 + WARNING log.
+
+    Per slice plan: the rule write is the source of truth; hook install
+    failures are logged WARNING but do NOT fail the PUT (the next clone-
+    to-mirror reconverges).
+    """
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "PRUnreach")
+    _seed_installation(db, team_id=team_id, installation_id=23023)
+    pr = _create_project(
+        client, cookies, team_id=team_id, installation_id=23023
+    )
+
+    # Stub the orchestrator hop so the install POST raises ConnectError.
+    _install_fake_orch(
+        monkeypatch,
+        {
+            ("POST", f"/v1/projects/{pr['id']}/install-push-hook"):
+                httpx.ConnectError("connection refused"),
+        },
+    )
+
+    logging.getLogger("app.api.routes.projects").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.projects"):
+        r = client.put(
+            f"{API}/projects/{pr['id']}/push-rule",
+            json={"mode": "auto"},
+            cookies=cookies,
+        )
+
+    assert r.status_code == 200, r.text
+    captured = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "push_hook_orch_call_unreachable" in captured
+    assert "install-push-hook" in captured
