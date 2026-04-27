@@ -97,5 +97,13 @@ class Settings(BaseSettings):
     # off at call sites.
     github_api_base_url: str = "https://api.github.com"
 
+    # GitHub git-clone base. Production points at the public host with
+    # https://; the M004/S04 e2e overrides this to a credential-free
+    # `git://mock-github-x:9418` so it can drive the full two-hop clone +
+    # auto-push round-trip without a real TLS handshake or a real
+    # api.github.com round-trip. NEVER overridden in production. Trailing
+    # slash is normalized off at call sites.
+    github_clone_base_url: str = "https://github.com"
+
 
 settings = Settings()

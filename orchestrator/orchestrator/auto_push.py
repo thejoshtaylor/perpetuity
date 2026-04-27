@@ -63,6 +63,7 @@ import aiodocker
 import asyncpg
 from aiodocker.exceptions import DockerError
 
+from orchestrator.config import settings
 from orchestrator.errors import DockerUnavailable
 from orchestrator.github_tokens import (
     InstallationTokenMintFailed,
@@ -383,8 +384,19 @@ async def run_auto_push(
     # 5. Push refs. Two separate exec calls because `git push --all` does
     #    NOT include tags by GitHub's protocol convention — explicitly push
     #    tags after refs/heads. The token only ever appears in the env dict.
+    # ``github_clone_base_url`` is a settings hook ONLY used by the M004/S04
+    # e2e to swap the public host for a mock — production NEVER overrides
+    # it. Same shape as clone.py's _git_clone_into_tmp.
     bare = f"/repos/{project_id}.git"
-    push_url = f"https://x-access-token:$TOKEN@github.com/{repo_full_name}.git"
+    base = settings.github_clone_base_url.rstrip("/")
+    if base.startswith("https://"):
+        host = base.split("://", 1)[1]
+        push_url = (
+            f"https://x-access-token:$TOKEN@{host}/{repo_full_name}.git"
+        )
+    else:
+        # git:// (test mock) — credential-free.
+        push_url = f"{base}/{repo_full_name}.git"
     push_all_cmd = [
         "sh",
         "-c",
