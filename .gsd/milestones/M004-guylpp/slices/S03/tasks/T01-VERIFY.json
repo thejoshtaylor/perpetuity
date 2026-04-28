@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M004-guylpp/S03/T01",
+  "timestamp": 1777171957945,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_PORT=5432 uv run pytest tests/migrations/test_s06c_team_mirror_volumes_migration.py tests/api/routes/test_admin_settings.py -v -k 'mirror_idle or s06c'",
+      "exitCode": 4,
+      "durationMs": 365,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

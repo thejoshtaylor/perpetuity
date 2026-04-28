@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M005-oaptsz/S02/T01",
+  "timestamp": 1777371275394,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "set -a",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "source ../.env",
+      "exitCode": 1,
+      "durationMs": 3,
+      "verdict": "fail"
+    },
+    {
+      "command": "set +a",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run alembic upgrade head",
+      "exitCode": 255,
+      "durationMs": 327,
+      "verdict": "fail"
+    },
+    {
+      "command": "uv run pytest tests/migrations/test_s07_notifications_migration.py -x",
+      "exitCode": 4,
+      "durationMs": 165,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "unitId": "M005-oaptsz/S03/T04",
+  "timestamp": 1777395694932,
+  "passed": false,
+  "discoverySource": "package-json",
+  "checks": [
+    {
+      "command": "npm run lint",
+      "exitCode": 0,
+      "durationMs": 315,
+      "verdict": "pass"
+    },
+    {
+      "command": "npm run test",
+      "exitCode": 127,
+      "durationMs": 120013,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

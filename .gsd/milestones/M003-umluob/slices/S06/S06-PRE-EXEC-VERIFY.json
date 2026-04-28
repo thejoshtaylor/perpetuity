@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "M003-umluob",
+  "sliceId": "S06",
+  "timestamp": 1777131408844,
+  "status": "fail",
+  "durationMs": 1,
+  "checks": [
+    {
+      "category": "file",
+      "target": "`orchestrator/orchestrator/registry.py` — Redis-backed session:<id> registry rebuilt on boot per D016 (read-only)",
+      "passed": false,
+      "message": "Task T01 references '`orchestrator/orchestrator/registry.py` — Redis-backed session:<id> registry rebuilt on boot per D016 (read-only)' which doesn't exist and isn't created by prior or same-task outputs",
+      "blocking": true
+    }
+  ]
+}

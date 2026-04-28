@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "unitId": "M001-6cqls8/S03/T04",
+  "timestamp": 1777074074779,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/ -v",
+      "exitCode": 4,
+      "durationMs": 369,
+      "verdict": "fail"
+    },
+    {
+      "command": "rg -n '501' backend/app/api/routes/teams.py",
+      "exitCode": 1,
+      "durationMs": 14,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

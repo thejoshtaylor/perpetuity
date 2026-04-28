@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M004-guylpp/S05/T02",
+  "timestamp": 1777338824662,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_PORT=5432 uv run pytest tests/api/routes/test_github_webhooks.py -v",
+      "exitCode": 4,
+      "durationMs": 133,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

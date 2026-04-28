@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M002-jy6pde/S02/T03",
+  "timestamp": 1777115372655,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "docker compose build orchestrator",
+      "exitCode": 0,
+      "durationMs": 1080,
+      "verdict": "pass"
+    },
+    {
+      "command": "docker compose up -d --force-recreate orchestrator",
+      "exitCode": 0,
+      "durationMs": 1308,
+      "verdict": "pass"
+    },
+    {
+      "command": "docker compose exec orchestrator /app/.venv/bin/pytest tests/integration/test_sessions_lifecycle.py tests/integration/test_volumes.py -v",
+      "exitCode": 4,
+      "durationMs": 408,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

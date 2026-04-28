@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M005-oaptsz/S04/T03",
+  "timestamp": 1777402366417,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "bunx playwright test --project=mobile-chrome m005-oaptsz-voice.spec.ts",
+      "exitCode": 1,
+      "durationMs": 650,
+      "verdict": "fail"
+    },
+    {
+      "command": "bunx playwright test --project=mobile-chrome m005-oaptsz-mobile-audit.spec.ts",
+      "exitCode": 1,
+      "durationMs": 418,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

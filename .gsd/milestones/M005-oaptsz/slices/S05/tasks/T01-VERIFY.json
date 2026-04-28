@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M005-oaptsz/S05/T01",
+  "timestamp": 1777404449572,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "bash scripts/redaction-sweep.sh exits 0 with output: 'PASS: no Grok key prefix in log paths', 'PASS: no VAPID private key material in log paths', 'PASS: no multipart boundary in log paths', 'PASS: no raw push endpoint URLs in log paths'. Each PASS line printed. Script exit code 0.",
+      "exitCode": 0,
+      "durationMs": 188,
+      "verdict": "pass"
+    }
+  ]
+}

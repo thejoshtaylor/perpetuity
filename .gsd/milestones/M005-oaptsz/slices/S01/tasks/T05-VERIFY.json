@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M005-oaptsz/S01/T05",
+  "timestamp": 1777368033831,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "bunx playwright test --project=m005-oaptsz-sw m005-oaptsz-sw-bypass.spec.ts",
+      "exitCode": 1,
+      "durationMs": 571,
+      "verdict": "fail"
+    },
+    {
+      "command": "bunx playwright test --project=mobile-chrome m005-oaptsz-mobile-audit.spec.ts",
+      "exitCode": 1,
+      "durationMs": 405,
+      "verdict": "fail"
+    },
+    {
+      "command": "bunx playwright test --project=iphone-13-mobile-safari m005-oaptsz-mobile-audit.spec.ts",
+      "exitCode": 1,
+      "durationMs": 407,
+      "verdict": "fail"
+    },
+    {
+      "command": "! grep -q 'test.fixme' frontend/tests/m005-oaptsz-mobile-audit.spec.ts",
+      "exitCode": 0,
+      "durationMs": 7,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

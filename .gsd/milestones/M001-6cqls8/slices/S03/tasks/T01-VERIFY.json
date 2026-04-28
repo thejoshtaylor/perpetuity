@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M001-6cqls8/S03/T01",
+  "timestamp": 1777073368988,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run alembic upgrade head",
+      "exitCode": 255,
+      "durationMs": 358,
+      "verdict": "fail"
+    },
+    {
+      "command": "uv run pytest tests/migrations/test_s03_migration.py -v",
+      "exitCode": 4,
+      "durationMs": 167,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

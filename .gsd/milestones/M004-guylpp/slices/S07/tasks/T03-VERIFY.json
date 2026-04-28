@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M004-guylpp/S07/T03",
+  "timestamp": 1777351587002,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -x scripts/m004_redaction_sweep.sh",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "bash -n scripts/m004_redaction_sweep.sh",
+      "exitCode": 0,
+      "durationMs": 16,
+      "verdict": "pass"
+    },
+    {
+      "command": "docker compose up -d backend orchestrator",
+      "exitCode": 1,
+      "durationMs": 850,
+      "verdict": "fail"
+    },
+    {
+      "command": "sleep 2",
+      "exitCode": 0,
+      "durationMs": 2021,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

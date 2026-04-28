@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "M005-oaptsz",
+  "sliceId": "S02",
+  "timestamp": 1777370297768,
+  "status": "fail",
+  "durationMs": 1,
+  "checks": [
+    {
+      "category": "file",
+      "target": "`frontend/src/components/ui/popover.tsx` — Popover primitive used as bell dropdown",
+      "passed": false,
+      "message": "Task T04 references '`frontend/src/components/ui/popover.tsx` — Popover primitive used as bell dropdown' which doesn't exist and isn't created by prior or same-task outputs",
+      "blocking": true
+    }
+  ]
+}

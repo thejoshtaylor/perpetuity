@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "unitId": "M005-oaptsz/S02/T04",
+  "timestamp": 1777372786323,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run lint",
+      "exitCode": 0,
+      "durationMs": 180,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run build",
+      "exitCode": 1,
+      "durationMs": 11,
+      "verdict": "fail"
+    },
+    {
+      "command": "bunx playwright test --project=chromium m005-oaptsz-notifications.spec.ts",
+      "exitCode": 1,
+      "durationMs": 522,
+      "verdict": "fail"
+    },
+    {
+      "command": "bunx playwright test --project=mobile-chrome m005-oaptsz-mobile-audit.spec.ts",
+      "exitCode": 1,
+      "durationMs": 399,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001-6cqls8/S04/T02",
+  "timestamp": 1777075909556,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run lint",
+      "exitCode": 0,
+      "durationMs": 175,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run build",
+      "exitCode": 1,
+      "durationMs": 11,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

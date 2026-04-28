@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M004-guylpp/S07/T02",
+  "timestamp": 1777351126396,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -f docs/runbooks/m004-secrets-rotation.md",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qE '^## Procedure 1: SYSTEM_SETTINGS_ENCRYPTION_KEY rotation' docs/runbooks/m004-secrets-rotation.md",
+      "exitCode": 0,
+      "durationMs": 7,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qE '^## Procedure 2: github_app_webhook_secret rotation' docs/runbooks/m004-secrets-rotation.md",
+      "exitCode": 0,
+      "durationMs": 8,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qE '^## Inspecting state at rotation time' docs/runbooks/m004-secrets-rotation.md",
+      "exitCode": 0,
+      "durationMs": 8,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qE 'webhook_signature_invalid' docs/runbooks/m004-secrets-rotation.md",
+      "exitCode": 0,
+      "durationMs": 7,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qE '### Recovery' docs/runbooks/m004-secrets-rotation.md",
+      "exitCode": 0,
+      "durationMs": 7,
+      "verdict": "pass"
+    }
+  ]
+}

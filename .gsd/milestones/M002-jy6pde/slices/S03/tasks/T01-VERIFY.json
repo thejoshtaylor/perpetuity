@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M002-jy6pde/S03/T01",
+  "timestamp": 1777117225471,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_PORT=5432 uv run alembic downgrade -1",
+      "exitCode": 255,
+      "durationMs": 293,
+      "verdict": "fail"
+    },
+    {
+      "command": "POSTGRES_PORT=5432 uv run pytest tests/migrations/test_s05_migration.py -v",
+      "exitCode": 4,
+      "durationMs": 134,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

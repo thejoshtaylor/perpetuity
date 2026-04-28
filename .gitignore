@@ -7,7 +7,17 @@ node_modules/
 /playwright/.cache/
 
 # ── GSD baseline (auto-generated) ──
-.gsd
+# Track durable artifacts so `git log -- .gsd/milestones/...` works
+# (auto-recovery.js needs this to detect implementation commits per #5071)
+.gsd/*
+!.gsd/PROJECT.md
+!.gsd/DECISIONS.md
+!.gsd/REQUIREMENTS.md
+!.gsd/KNOWLEDGE.md
+!.gsd/OVERRIDES.md
+!.gsd/QUEUE.md
+!.gsd/milestones/
+.gsd/milestones/*/anchors/
 .gsd-id
 .mcp.json
 .bg-shell/

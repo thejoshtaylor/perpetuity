@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M001-6cqls8/S01/T01",
+  "timestamp": 1777068054274,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run alembic upgrade head",
+      "exitCode": 255,
+      "durationMs": 286,
+      "verdict": "fail"
+    },
+    {
+      "command": "uv run alembic downgrade -1",
+      "exitCode": 255,
+      "durationMs": 183,
+      "verdict": "fail"
+    },
+    {
+      "command": "uv run alembic upgrade head",
+      "exitCode": 255,
+      "durationMs": 188,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

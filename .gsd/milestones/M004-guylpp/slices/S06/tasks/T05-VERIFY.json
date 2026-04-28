@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M004-guylpp/S06/T05",
+  "timestamp": 1777348993944,
+  "passed": false,
+  "discoverySource": "package-json",
+  "checks": [
+    {
+      "command": "npm run lint",
+      "exitCode": 0,
+      "durationMs": 254,
+      "verdict": "pass"
+    },
+    {
+      "command": "npm run test",
+      "exitCode": 127,
+      "durationMs": 120006,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "M004-guylpp",
+  "sliceId": "S06",
+  "timestamp": 1777344972936,
+  "status": "fail",
+  "durationMs": 1,
+  "checks": [
+    {
+      "category": "file",
+      "target": "`/Users/josh/code/perpetuity/frontend/src/components/ui/radio-group.tsx`",
+      "passed": false,
+      "message": "Task T04 references '`/Users/josh/code/perpetuity/frontend/src/components/ui/radio-group.tsx`' which doesn't exist and isn't created by prior or same-task outputs",
+      "blocking": true
+    }
+  ]
+}

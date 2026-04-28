@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M005-oaptsz/S04/T02",
+  "timestamp": 1777401348744,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run generate-client",
+      "exitCode": 1,
+      "durationMs": 14,
+      "verdict": "fail"
+    },
+    {
+      "command": "bun run build",
+      "exitCode": 1,
+      "durationMs": 9,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

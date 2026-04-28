@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M005-oaptsz/S01/T01",
+  "timestamp": 1777364184895,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun install",
+      "exitCode": 0,
+      "durationMs": 139,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run build",
+      "exitCode": 1,
+      "durationMs": 12,
+      "verdict": "fail"
+    },
+    {
+      "command": "test -f dist/sw.js",
+      "exitCode": 1,
+      "durationMs": 5,
+      "verdict": "fail"
+    },
+    {
+      "command": "grep -q 'NetworkOnly' dist/sw.js",
+      "exitCode": 2,
+      "durationMs": 6,
+      "verdict": "fail"
+    },
+    {
+      "command": "grep -q 'precache' dist/sw.js",
+      "exitCode": 2,
+      "durationMs": 5,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

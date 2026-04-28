@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M002-jy6pde/S04/T01",
+  "timestamp": 1777120016097,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "docker compose build orchestrator",
+      "exitCode": 0,
+      "durationMs": 1283,
+      "verdict": "pass"
+    },
+    {
+      "command": "docker compose up -d --force-recreate orchestrator",
+      "exitCode": 0,
+      "durationMs": 1302,
+      "verdict": "pass"
+    },
+    {
+      "command": "cd orchestrator",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/unit/test_attach_map.py -v",
+      "exitCode": 4,
+      "durationMs": 294,
+      "verdict": "fail"
+    },
+    {
+      "command": "docker cp tests perpetuity-orchestrator-1:/app/tests",
+      "exitCode": 1,
+      "durationMs": 19,
+      "verdict": "fail"
+    },
+    {
+      "command": "docker compose exec orchestrator /app/.venv/bin/pytest tests/integration/test_ws_attach_map.py tests/integration/test_ws_bridge.py -v",
+      "exitCode": 4,
+      "durationMs": 326,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001-6cqls8/S02/T02",
+  "timestamp": 1777072278887,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/api/routes/test_auth.py -v (expect all S01 tests + new signup-personal-team + rollback tests passing)",
+      "exitCode": 2,
+      "durationMs": 4,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

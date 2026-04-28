@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M005-oaptsz/S01/T02",
+  "timestamp": 1777365101365,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "test -f public/pwa-192.png",
+      "exitCode": 1,
+      "durationMs": 4,
+      "verdict": "fail"
+    },
+    {
+      "command": "test -f public/pwa-512.png",
+      "exitCode": 1,
+      "durationMs": 4,
+      "verdict": "fail"
+    },
+    {
+      "command": "test -f public/apple-touch-icon-180.png",
+      "exitCode": 1,
+      "durationMs": 4,
+      "verdict": "fail"
+    },
+    {
+      "command": "grep -q 'manifest.webmanifest' index.html",
+      "exitCode": 2,
+      "durationMs": 5,
+      "verdict": "fail"
+    },
+    {
+      "command": "grep -q 'apple-touch-icon' index.html",
+      "exitCode": 2,
+      "durationMs": 6,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

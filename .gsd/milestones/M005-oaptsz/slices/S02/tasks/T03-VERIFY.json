@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M005-oaptsz/S02/T03",
+  "timestamp": 1777372201094,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "set -a",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "source ../.env",
+      "exitCode": 1,
+      "durationMs": 4,
+      "verdict": "fail"
+    },
+    {
+      "command": "set +a",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/api/routes/test_teams.py::test_invite_accept_creates_notification tests/api/routes/test_projects.py::test_project_create_notifies_admins tests/api/routes/test_notifications.py::test_notifications_test_endpoint_creates_system_kind -x",
+      "exitCode": 4,
+      "durationMs": 317,
+      "verdict": "fail"
+    },
+    {
+      "command": "bash scripts/generate-client.sh",
+      "exitCode": 0,
+      "durationMs": 1410,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

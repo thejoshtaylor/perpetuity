@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M001-6cqls8/S05/T05",
+  "timestamp": 1777087064087,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "VITE_API_URL=http://localhost:8001 bunx playwright test admin-teams.spec.ts --project=chromium",
+      "exitCode": 1,
+      "durationMs": 595,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

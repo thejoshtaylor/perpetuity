@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M005-oaptsz/S01/T03",
+  "timestamp": 1777365436874,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run build",
+      "exitCode": 1,
+      "durationMs": 25,
+      "verdict": "fail"
+    },
+    {
+      "command": "cd ..",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q 'beforeinstallprompt' frontend/src/components/Common/InstallBanner.tsx",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q 'navigator.onLine' frontend/src/components/Common/OfflineBanner.tsx",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q 'InstallBanner' frontend/src/routes/_layout.tsx",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q 'OfflineBanner' frontend/src/routes/_layout.tsx",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

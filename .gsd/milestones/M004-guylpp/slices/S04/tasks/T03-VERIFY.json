@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M004-guylpp/S04/T03",
+  "timestamp": 1777328931020,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd /Users/josh/code/perpetuity/orchestrator",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/unit/test_sessions.py tests/unit/test_clone_to_user_workspace.py tests/unit/test_routes_projects_materialize_user.py -v",
+      "exitCode": 4,
+      "durationMs": 351,
+      "verdict": "fail"
+    },
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_PORT=5432 uv run pytest tests/api/routes/test_projects_open.py -v",
+      "exitCode": 4,
+      "durationMs": 150,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

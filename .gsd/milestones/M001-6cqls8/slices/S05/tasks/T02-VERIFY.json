@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001-6cqls8/S05/T02",
+  "timestamp": 1777079754769,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "bun run generate-client",
+      "exitCode": 1,
+      "durationMs": 26,
+      "verdict": "fail"
+    },
+    {
+      "command": "bun run lint",
+      "exitCode": 0,
+      "durationMs": 186,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q 'AdminService' src/client/sdk.gen.ts",
+      "exitCode": 2,
+      "durationMs": 7,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

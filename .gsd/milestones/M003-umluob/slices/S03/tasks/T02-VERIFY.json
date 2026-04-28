@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M003-umluob/S03/T02",
+  "timestamp": 1777128395530,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -f .gsd/milestones/M003-umluob/slices/S03/tasks/T02-VERIFICATION.md",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q 'M003-umluob duplicates M002-jy6pde' .gsd/milestones/M003-umluob/slices/S03/tasks/T02-VERIFICATION.md",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "(cd orchestrator",
+      "exitCode": 2,
+      "durationMs": 3,
+      "verdict": "fail"
+    },
+    {
+      "command": ".venv/bin/pytest tests/integration/test_reaper.py::test_reaper_kills_idle_session_with_no_attach tests/integration/test_reaper.py::test_reaper_skips_attached_session tests/integration/test_reaper.py::test_reaper_reaps_container_when_last_session_killed tests/integration/test_reaper.py::test_reaper_keeps_container_with_surviving_session -v)",
+      "exitCode": 2,
+      "durationMs": 3,
+      "verdict": "fail"
+    },
+    {
+      "command": "(cd backend",
+      "exitCode": 2,
+      "durationMs": 2,
+      "verdict": "fail"
+    },
+    {
+      "command": "uv run pytest tests/integration/test_m002_s05_full_acceptance_e2e.py::test_m002_s05_full_acceptance -v)",
+      "exitCode": 2,
+      "durationMs": 3,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}
