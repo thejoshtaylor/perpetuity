@@ -307,6 +307,12 @@ def backend_url(
         os.environ.get("POSTGRES_PASSWORD")
         or _read_dotenv_value("POSTGRES_PASSWORD", "changethis")
     )
+    # MEM348: the shared `app` DB on `perpetuity-db-1` was contaminated by
+    # an unrelated CRM schema (alembic version `z2y_*` / `z3b_*`). When that
+    # happens the operator can stand up a clean `perpetuity_app` database
+    # and route the e2e backend at it via POSTGRES_DB. Default stays at
+    # `app` so existing happy-path runs are unaffected.
+    pg_db = os.environ.get("POSTGRES_DB", "app")
     secret_key = _read_dotenv_value("SECRET_KEY", "changethis")
     api_key = _read_dotenv_value("ORCHESTRATOR_API_KEY", "changethis")
 
@@ -324,7 +330,7 @@ def backend_url(
         "-e", "FIRST_SUPERUSER_PASSWORD=changethis",
         "-e", "POSTGRES_SERVER=db",
         "-e", "POSTGRES_PORT=5432",
-        "-e", "POSTGRES_DB=app",
+        "-e", f"POSTGRES_DB={pg_db}",
         "-e", "POSTGRES_USER=postgres",
         "-e", f"POSTGRES_PASSWORD={pg_password}",
         "-e", "REDIS_HOST=redis",

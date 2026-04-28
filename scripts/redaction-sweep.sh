@@ -81,6 +81,31 @@ check_pattern \
     "$BACKEND_SRC" "$FRONTEND_SRC" "$SW_DIST"
 
 # --------------------------------------------------------------------------
+# Check 1b (M005/S01/T05): Anthropic + OpenAI API key prefixes inside a
+# logger.*/console.* call.
+#
+# Anthropic keys start `sk-ant-`. OpenAI keys start `sk-`. Both are used by
+# M005/S01's team_secrets surface (claude_api_key, openai_api_key). The
+# `sk-ant-` family is checked first (and as a strict superset of `sk-`,
+# the looser pattern below will also catch it) so we get a sharper FAIL
+# label when an Anthropic-shaped value lands in a logger. The looser
+# `sk-[A-Za-z0-9_-]{20,}` check then catches generic OpenAI shapes while
+# the {20,} length floor avoids matching cosmetic strings like "sk-skip"
+# or "sk-template" that contain a hyphen but aren't bearer-key shaped.
+# --------------------------------------------------------------------------
+ANTHROPIC_KEY_PATTERN='(logger\.|console\.)[a-zA-Z]+.*sk-ant-[A-Za-z0-9_-]+'
+check_pattern \
+    "no Anthropic API key prefix (sk-ant-) in log paths" \
+    "$ANTHROPIC_KEY_PATTERN" \
+    "$BACKEND_SRC" "$FRONTEND_SRC" "$SW_DIST"
+
+OPENAI_KEY_PATTERN='(logger\.|console\.)[a-zA-Z]+.*sk-[A-Za-z0-9_-]{20,}'
+check_pattern \
+    "no OpenAI API key prefix (sk-) in log paths" \
+    "$OPENAI_KEY_PATTERN" \
+    "$BACKEND_SRC" "$FRONTEND_SRC" "$SW_DIST"
+
+# --------------------------------------------------------------------------
 # Check 2: VAPID private key material inside a logger.* or console.* line
 #   2a. PEM armor header
 #   2b. Long base64url block (>40 chars) — catches raw key bytes
@@ -174,6 +199,8 @@ if [[ "$FAIL" -ne 0 ]]; then
 fi
 
 echo "PASS: no Grok key prefix in log paths"
+echo "PASS: no Anthropic API key prefix (sk-ant-) in log paths"
+echo "PASS: no OpenAI API key prefix (sk-) in log paths"
 echo "PASS: no VAPID private key material in log paths"
 echo "PASS: no multipart boundary in log paths"
 echo "PASS: no raw push endpoint URLs in log paths"

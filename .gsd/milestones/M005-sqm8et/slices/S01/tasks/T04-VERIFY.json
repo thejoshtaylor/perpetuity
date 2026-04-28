@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "unitId": "M005-sqm8et/S01/T04",
+  "timestamp": 1777414024409,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "npm test -- TeamSecretsPanel",
+      "exitCode": 0,
+      "durationMs": 24201,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2,
+  "postExecutionChecks": [
+    {
+      "category": "import",
+      "target": "frontend/src/client/sdk.gen.ts:6",
+      "passed": false,
+      "message": "Import './types.gen' in frontend/src/client/sdk.gen.ts:6 does not resolve to an existing file",
+      "blocking": true
+    }
+  ]
+}

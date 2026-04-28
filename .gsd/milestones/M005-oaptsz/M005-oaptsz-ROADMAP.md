@@ -1,4 +1,4 @@
-# M005-oaptsz: PWA, Notifications & Voice — UX layer that makes Perpetuity feel like a real phone product
+# M005-oaptsz: PWA, Notifications & Voice - UX layer that makes Perpetuity feel like a real phone product
 
 **Vision:** Convert the functionally-complete platform into a phone-deployable product: install-on-home-screen PWA with a correct service-worker boundary, a unified notification center with cross-device read state, real Web Push delivery on workflow events, and a microphone next to every text input that transcribes via Grok STT. When this milestone closes, a user can install the app on their phone, configure a workflow to push-notify on failure, dictate the next prompt by voice, and complete every existing flow on a 360px viewport with touch — without typing on a keyboard if they don't want to.
 

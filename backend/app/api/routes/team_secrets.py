@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 from app.api.deps import CurrentUser, SessionDep
 from app.api.team_secrets import (
     delete_team_secret,
+    get_team_secret,
     list_team_secret_status,
     set_team_secret,
 )
@@ -46,6 +47,7 @@ from app.api.team_secrets_registry import (
     UnregisteredTeamSecretKeyError,
     lookup,
 )
+from app.core.config import settings
 from app.models import (
     Team,
     TeamMember,
@@ -53,6 +55,7 @@ from app.models import (
     TeamSecret,
     TeamSecretPut,
     TeamSecretStatus,
+    UserRole,
 )
 
 logger = logging.getLogger(__name__)
@@ -278,3 +281,43 @@ def delete_team_secret_route(
         key,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ----- local-only round-trip endpoint (M005/S01/T05) ---------------------
+#
+# Drives the e2e tamper-detection contract: the test decrypt path runs
+# `get_team_secret`, which is the only `decrypt_setting` call site for
+# team_secrets rows. On healthy ciphertext it returns the plaintext to a
+# system_admin caller; on corrupted ciphertext it raises
+# `TeamSecretDecryptError` which the global handler translates to a 503
+# with the slice-plan-locked `team_secret_decrypt_failed` error key.
+#
+# Gated behind `settings.ENVIRONMENT == "local"` (same gate `private.py`
+# uses) so the endpoint is excluded from the production OpenAPI schema and
+# never registered against a non-local FastAPI app. Defense in depth: even
+# when the gate is open the endpoint also requires a `system_admin` caller
+# — a team admin cannot use this surface to siphon their own team's
+# plaintext, and a non-admin user gets 403 before any decrypt happens. No
+# log line is emitted on success (the slice's INFO taxonomy is locked to
+# `team_secret_set` / `team_secret_deleted`); the 503 path inherits the
+# global handler's ERROR log.
+if settings.ENVIRONMENT == "local":
+
+    @router.get(
+        "/{team_id}/secrets/{key}/_test_decrypt",
+        include_in_schema=False,
+    )
+    def _test_decrypt_team_secret(
+        *,
+        session: SessionDep,
+        current_user: CurrentUser,
+        team_id: uuid.UUID,
+        key: str,
+    ) -> dict[str, str]:
+        if current_user.role != UserRole.system_admin:
+            raise HTTPException(
+                status_code=403,
+                detail={"detail": "system_admin_required"},
+            )
+        plaintext = get_team_secret(session, team_id, key)
+        return {"key": key, "value": plaintext}
