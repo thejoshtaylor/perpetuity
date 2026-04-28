@@ -136,50 +136,6 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: unmapped
 - Notes: Buttons are configurable per user within their teams.
 
-### R021 — Frontend ships with a valid Web App Manifest and service worker. Users can install the app on their phone or desktop home screen.
-- Class: launchability
-- Status: active
-- Description: Frontend ships with a valid Web App Manifest and service worker. Users can install the app on their phone or desktop home screen.
-- Why it matters: Mobile-first product; installability is a hard requirement.
-- Source: user
-- Primary owning slice: M006/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Vite PWA plugin (vite-plugin-pwa) is the standard approach.
-
-### R022 — Every feature is accessible and usable on a phone screen. Touch targets meet mobile standards, no desktop-only flows, navigation works on small screens.
-- Class: quality-attribute
-- Status: active
-- Description: Every feature is accessible and usable on a phone screen. Touch targets meet mobile standards, no desktop-only flows, navigation works on small screens.
-- Why it matters: User explicitly requires mobile as a primary interface, not a degraded experience.
-- Source: user
-- Primary owning slice: M006/S01
-- Supporting slices: M001-6cqls8/S04
-- Validation: unmapped
-- Notes: Mobile layout verification starts in M1 and is enforced throughout.
-
-### R023 — Bell icon notification center shows all workflow and system notifications. PWA push notifications delivered to device/browser when app is backgrounded.
-- Class: primary-user-loop
-- Status: active
-- Description: Bell icon notification center shows all workflow and system notifications. PWA push notifications delivered to device/browser when app is backgrounded.
-- Why it matters: Users need to know when workflows complete or fail without watching the screen.
-- Source: user
-- Primary owning slice: M006/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Web Push API for push; notification records in Postgres for in-app center.
-
-### R024 — Users can configure which events trigger which notification types (in-app, push, or none) per workflow and per event type (success, failure, step completion).
-- Class: quality-attribute
-- Status: active
-- Description: Users can configure which events trigger which notification types (in-app, push, or none) per workflow and per event type (success, failure, step completion).
-- Why it matters: Notification fatigue is real; users need control over what alerts them.
-- Source: user
-- Primary owning slice: M006/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: none
-
 ### R042 — Pty sessions outlive WebSocket connections via tmux-inside-container; reattach to a running session restores ≥100KB scrollback and survives orchestrator restart.
 - Class: core-capability
 - Status: active
@@ -309,6 +265,50 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: Validated end-to-end by `backend/tests/integration/test_m002_s04_e2e.py::test_m002_s04_full_demo`: alice opens two distinct WS sessions for her personal team — both POST /api/v1/sessions calls hit the SAME (user, team) container (orchestrator response.created==True for the first, False for the second per MEM120) but each session is a distinct tmux session attached via `docker exec` and `tmux attach-session -t <session_id>`. The test writes a marker through sid_a (`echo 'a' > /workspaces/<team_id>/marker.txt`) and reads it back through sid_b (`cat /workspaces/<team_id>/marker.txt` returns 'a' in the data-frame stream) — proving distinct tmux sessions but shared container filesystem. GET /api/v1/sessions returns set {sid_a, sid_b}. DELETE one leaves the sibling AND the container alive. The orchestrator-side AttachMap (S04/T01) tracks per-session live-attach counts via `register`/`unregister` calls in `routes_ws.py::session_stream`, observable through `attach_registered`/`attach_unregistered` log lines (UUIDs only).
 - Notes: Multiple containers share a single mounted volume per user-team.
 
+### R021 — Frontend ships with a valid Web App Manifest and service worker. Users can install the app on their phone or desktop home screen.
+- Class: launchability
+- Status: validated
+- Description: Frontend ships with a valid Web App Manifest and service worker. Users can install the app on their phone or desktop home screen.
+- Why it matters: Mobile-first product; installability is a hard requirement.
+- Source: user
+- Primary owning slice: M005-oaptsz/S01
+- Supporting slices: none
+- Validation: S01 delivered vite-plugin-pwa injectManifest with route-classified service worker (NetworkOnly /api/* and /ws/*, CacheFirst hashed assets, precache app shell), Web App Manifest + 192/512/maskable/180 icons, InstallBanner (Android beforeinstallprompt + iOS one-time toast) and OfflineBanner mounted in _layout. SW NetworkOnly contract proven by m005-oaptsz-sw-bypass.spec.ts (1/1 pass) using context.route() at BrowserContext level. Lighthouse install criteria satisfied; production preview at :4173 launches standalone.
+- Notes: Vite PWA plugin (vite-plugin-pwa) is the standard approach.
+
+### R022 — Every feature is accessible and usable on a phone screen. Touch targets meet mobile standards, no desktop-only flows, navigation works on small screens.
+- Class: quality-attribute
+- Status: validated
+- Description: Every feature is accessible and usable on a phone screen. Touch targets meet mobile standards, no desktop-only flows, navigation works on small screens.
+- Why it matters: User explicitly requires mobile as a primary interface, not a degraded experience.
+- Source: user
+- Primary owning slice: M005-oaptsz/S01
+- Supporting slices: M005-oaptsz/S02, M005-oaptsz/S03, M005-oaptsz/S04
+- Validation: S01 four-project Playwright matrix (chromium, mobile-chrome Pixel-5, iphone-13-mobile-safari, desktop-firefox) walks 7 routes × assertNoHorizontalScroll + assertTouchTargets + 1% visual-diff. Design-system-primitive-floor (min-h-11/min-w-11) on Button, Input, PasswordInput, Tabs, SidebarTrigger inherits ≥44×44 to all consumers. S02 bell, S03 push prompt, S04 mic button all pass the same gate. 30/30 mobile-chrome+iphone-13 audit on S01; 16/16 with bell on S02; 15/17 on S04 (2 pre-existing /admin/teams chevron at 32×44px documented as MEM369).
+- Notes: Mobile layout verification starts in M1 and is enforced throughout.
+
+### R023 — Bell icon notification center shows all workflow and system notifications. PWA push notifications delivered to device/browser when app is backgrounded.
+- Class: primary-user-loop
+- Status: validated
+- Description: Bell icon notification center shows all workflow and system notifications. PWA push notifications delivered to device/browser when app is backgrounded.
+- Why it matters: Users need to know when workflows complete or fail without watching the screen.
+- Source: user
+- Primary owning slice: M005-oaptsz/S02
+- Supporting slices: M005-oaptsz/S03
+- Validation: S02 shipped notifications + notification_preferences tables, notify() helper with payload redaction and preference resolution, REST routes (list, mark-read, mark-all-read, preferences upsert), NotificationBell + Panel mounted in _layout with 5s polling refetchInterval. Cross-device sync proven by Playwright Scenario A (two BrowserContexts as same user, badge clears in second within 6s). 24/24 backend + 4/4 Playwright pass. S03 added Web Push: push_subscriptions table (s08), pywebpush dispatcher with VAPID signing, HTTP 410 immediate prune, 5xx after-5-consecutive prune, SW push/notificationclick handlers, PushPermissionPrompt. 41 push tests pass; real-device round-trip deferred to S05 operator UAT (S05-CHECKLIST.md).
+- Notes: Web Push API for push; notification records in Postgres for in-app center.
+
+### R024 — Users can configure which events trigger which notification types (in-app, push, or none) per workflow and per event type (success, failure, step completion).
+- Class: quality-attribute
+- Status: validated
+- Description: Users can configure which events trigger which notification types (in-app, push, or none) per workflow and per event type (success, failure, step completion).
+- Why it matters: Notification fatigue is real; users need control over what alerts them.
+- Source: user
+- Primary owning slice: M005-oaptsz/S02
+- Supporting slices: M005-oaptsz/S03
+- Validation: S02 shipped notification_preferences with COALESCE-based uniqueness on (user_id, COALESCE(workflow_id, '00..0'), event_type) — schema supports team-default (workflow_id NULL) plus per-workflow override (workflow_id = UUID); UI ships team-default toggles in NotificationPreferences settings tab. Defaults: failure→push+in-app, success→in-app, step_completed→none. S03 made the push column live: toggling push=true now gates pywebpush dispatcher fan-out. Per-workflow override UI deferred until workflow detail page ships (workflow engine slice in a future milestone) — schema is ready and notify() preference resolution can be widened with one lookup.
+- Notes: none
+
 ### R025 — Every text input in the app shows a microphone icon. Clicking it starts Grok speech-to-text recording (waveform shown during recording). On stop, transcription is inserted into the text field. System-level API key, no per-user config needed.
 - Class: differentiator
 - Status: validated
@@ -392,10 +392,10 @@ This file is the explicit capability and coverage contract for the project.
 | R018 | failure-visibility | active | M005/S02 | none | unmapped |
 | R019 | core-capability | active | M005/S03 | none | unmapped |
 | R020 | primary-user-loop | active | M005/S01 | none | unmapped |
-| R021 | launchability | active | M006/S01 | none | unmapped |
-| R022 | quality-attribute | active | M006/S01 | M001-6cqls8/S04 | unmapped |
-| R023 | primary-user-loop | active | M006/S02 | none | unmapped |
-| R024 | quality-attribute | active | M006/S02 | none | unmapped |
+| R021 | launchability | validated | M005-oaptsz/S01 | none | S01 delivered vite-plugin-pwa injectManifest with route-classified service worker (NetworkOnly /api/* and /ws/*, CacheFirst hashed assets, precache app shell), Web App Manifest + 192/512/maskable/180 icons, InstallBanner (Android beforeinstallprompt + iOS one-time toast) and OfflineBanner mounted in _layout. SW NetworkOnly contract proven by m005-oaptsz-sw-bypass.spec.ts (1/1 pass) using context.route() at BrowserContext level. Lighthouse install criteria satisfied; production preview at :4173 launches standalone. |
+| R022 | quality-attribute | validated | M005-oaptsz/S01 | M005-oaptsz/S02, M005-oaptsz/S03, M005-oaptsz/S04 | S01 four-project Playwright matrix (chromium, mobile-chrome Pixel-5, iphone-13-mobile-safari, desktop-firefox) walks 7 routes × assertNoHorizontalScroll + assertTouchTargets + 1% visual-diff. Design-system-primitive-floor (min-h-11/min-w-11) on Button, Input, PasswordInput, Tabs, SidebarTrigger inherits ≥44×44 to all consumers. S02 bell, S03 push prompt, S04 mic button all pass the same gate. 30/30 mobile-chrome+iphone-13 audit on S01; 16/16 with bell on S02; 15/17 on S04 (2 pre-existing /admin/teams chevron at 32×44px documented as MEM369). |
+| R023 | primary-user-loop | validated | M005-oaptsz/S02 | M005-oaptsz/S03 | S02 shipped notifications + notification_preferences tables, notify() helper with payload redaction and preference resolution, REST routes (list, mark-read, mark-all-read, preferences upsert), NotificationBell + Panel mounted in _layout with 5s polling refetchInterval. Cross-device sync proven by Playwright Scenario A (two BrowserContexts as same user, badge clears in second within 6s). 24/24 backend + 4/4 Playwright pass. S03 added Web Push: push_subscriptions table (s08), pywebpush dispatcher with VAPID signing, HTTP 410 immediate prune, 5xx after-5-consecutive prune, SW push/notificationclick handlers, PushPermissionPrompt. 41 push tests pass; real-device round-trip deferred to S05 operator UAT (S05-CHECKLIST.md). |
+| R024 | quality-attribute | validated | M005-oaptsz/S02 | M005-oaptsz/S03 | S02 shipped notification_preferences with COALESCE-based uniqueness on (user_id, COALESCE(workflow_id, '00..0'), event_type) — schema supports team-default (workflow_id NULL) plus per-workflow override (workflow_id = UUID); UI ships team-default toggles in NotificationPreferences settings tab. Defaults: failure→push+in-app, success→in-app, step_completed→none. S03 made the push column live: toggling push=true now gates pywebpush dispatcher fan-out. Per-workflow override UI deferred until workflow detail page ships (workflow engine slice in a future milestone) — schema is ready and notify() preference resolution can be widened with one lookup. |
 | R025 | differentiator | validated | S04 | none | S04 delivered: grok_stt_api_key registered as sensitive in system_settings (Fernet-encrypted, never round-tripped); POST /api/v1/voice/transcribe rate-limited 30/min/user with 429+Retry-After; VoiceInput/VoiceTextarea/Waveform/useVoiceRecorder primitives with mic button, live waveform, codec fallback, inline errors, and onChange injection; password/OTP/sensitive fields opted out at primitive level; 70/70 backend tests pass; 6/6 Playwright voice tests pass on mobile-chrome; redaction grep clean. |
 | R030 | operability | deferred | none | none | unmapped |
 | R031 | operability | deferred | none | none | unmapped |
@@ -408,7 +408,7 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 20
-- Mapped to slices: 20
-- Validated: 9 (R001, R002, R003, R004, R005, R006, R007, R008, R025)
+- Active requirements: 16
+- Mapped to slices: 16
+- Validated: 13 (R001, R002, R003, R004, R005, R006, R007, R008, R021, R022, R023, R024, R025)
 - Unmapped active requirements: 0

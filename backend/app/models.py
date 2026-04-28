@@ -362,6 +362,67 @@ class TeamMirrorPatch(SQLModel):
     always_on: bool
 
 
+# Per-team Fernet-encrypted credentials (M005/S01). One row per
+# (team_id, key) registered in `team_secrets_registry`. Ciphertext lives
+# in `value_encrypted` and is decrypted only at the call site via
+# `get_team_secret(...)` — never serialized back to the UI. Row absence
+# is the canonical "not set" state; `has_value` is here for parity with
+# `system_settings` so the public status DTO can render without peeking
+# at the ciphertext column. FK CASCADE on team delete drops every
+# secret with the team — orphan ciphertext is unrecoverable anyway.
+class TeamSecret(SQLModel, table=True):
+    __tablename__ = "team_secrets"
+
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id",
+        primary_key=True,
+        nullable=False,
+        ondelete="CASCADE",
+    )
+    key: str = Field(max_length=64, primary_key=True, nullable=False)
+    value_encrypted: bytes = Field(nullable=False)
+    has_value: bool = Field(default=True, nullable=False)
+    sensitive: bool = Field(default=True, nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# Public DTO for a single team_secret row. Intentionally excludes
+# `value_encrypted` — the field is not present on this model at all so
+# `TeamSecretPublic.model_validate(row)` cannot accidentally serialize
+# the ciphertext.
+class TeamSecretPublic(SQLModel):
+    team_id: uuid.UUID
+    key: str
+    has_value: bool
+    sensitive: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# Status DTO for GET responses. Same shape the registry uses to render
+# both "set" and "not set" entries — `updated_at` is None when the row
+# does not exist yet. Never carries the value or its prefix.
+class TeamSecretStatus(SQLModel):
+    key: str
+    has_value: bool
+    sensitive: bool
+    updated_at: datetime | None = None
+
+
+# PUT body for /api/v1/teams/{team_id}/secrets/{key} — single field so
+# the API surface stays narrow and the validator registry owns shape
+# checks.
+class TeamSecretPut(SQLModel):
+    value: str
+
+
 # Per-team GitHub-linked project (M004/S04). One row per (team, project name).
 # `installation_id` references `github_app_installations.installation_id`
 # (BIGINT) — RESTRICT so an admin cannot silently orphan projects by deleting
