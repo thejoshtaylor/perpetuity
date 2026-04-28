@@ -47,6 +47,39 @@ test.describe("M005-oaptsz mobile audit", () => {
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
   })
 
+  // M005-oaptsz/S04/T03: voice-mic toggle is the universal-coverage signal
+  // for D026. /login is the canonical unauthenticated representative — its
+  // email field is auto-wrapped by the <Input> primitive and renders a mic
+  // toggle. Verify (a) the mic is present, (b) it clears the >=44x44 mobile
+  // touch-target floor, and (c) the page still has no horizontal scroll
+  // with the mic visible (the mic adds layout pressure at the right edge).
+  test("voice mic toggle: visible on /login email and touch target >=44x44", async ({
+    page,
+  }, testInfo) => {
+    // No auth required — /login is unauthenticated.
+    await testInfo.attach("note", {
+      body: "voice-mic visibility + 44x44 floor on /login (M005-oaptsz/S04/T03)",
+      contentType: "text/plain",
+    })
+    await page.context().clearCookies().catch(() => {})
+    await page.goto("/login")
+    await page.waitForLoadState("networkidle").catch(() => {})
+
+    const mic = page.getByTestId("voice-input-toggle").first()
+    await expect(
+      mic,
+      "login email must auto-wrap into a VoiceInput with a mic toggle",
+    ).toBeVisible()
+    const box = await mic.boundingBox()
+    expect(box, "voice mic has no boundingBox").not.toBeNull()
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+
+    // Layout regression catch: the mic must not push the page wider than the
+    // viewport on the mobile-chrome / iphone-13 projects.
+    await assertNoHorizontalScroll(page)
+  })
+
   for (const route of ROUTES) {
     test.describe(route.name, () => {
       if (!route.authenticated) {

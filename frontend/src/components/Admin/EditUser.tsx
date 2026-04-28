@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
+import { PasswordInput } from "@/components/ui/password-input"
 import useCustomToast from "@/hooks/useCustomToast"
 import { handleError } from "@/utils"
 
@@ -164,9 +165,11 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
                   <FormItem>
                     <FormLabel>Set Password</FormLabel>
                     <FormControl>
-                      <Input
+                      {/* M005-oaptsz/S04/T03: see AddUser.tsx — use
+                          PasswordInput so password fields can never accidentally
+                          render a mic if the primitive heuristic regresses. */}
+                      <PasswordInput
                         placeholder="Password"
-                        type="password"
                         {...field}
                       />
                     </FormControl>
@@ -182,9 +185,8 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
-                      <Input
+                      <PasswordInput
                         placeholder="Password"
-                        type="password"
                         {...field}
                       />
                     </FormControl>

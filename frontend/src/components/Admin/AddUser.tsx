@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
+import { PasswordInput } from "@/components/ui/password-input"
 import useCustomToast from "@/hooks/useCustomToast"
 import { handleError } from "@/utils"
 
@@ -155,9 +156,13 @@ const AddUser = () => {
                       Set Password <span className="text-destructive">*</span>
                     </FormLabel>
                     <FormControl>
-                      <Input
+                      {/* M005-oaptsz/S04/T03: password fields use the
+                          PasswordInput primitive (no mic, show/hide toggle).
+                          Replaces a raw <Input type="password"> so coverage is
+                          enforced at the primitive level instead of relying on
+                          the type-based opt-out heuristic. */}
+                      <PasswordInput
                         placeholder="Password"
-                        type="password"
                         {...field}
                         required
                       />
@@ -177,9 +182,8 @@ const AddUser = () => {
                       <span className="text-destructive">*</span>
                     </FormLabel>
                     <FormControl>
-                      <Input
+                      <PasswordInput
                         placeholder="Password"
-                        type="password"
                         {...field}
                         required
                       />

@@ -117,24 +117,35 @@ export function SetSecretDialog({
                     </FormLabel>
                     <FormControl>
                       {variant === "pem" ? (
+                        // M005-oaptsz/S04/T03: system-settings PEM payload is
+                        // operator-supplied secret material. Stays a raw
+                        // <textarea> with data-voice-disabled so the audit
+                        // asserts no mic ever rendered next to it.
                         <textarea
                           {...field}
                           placeholder={placeholder}
                           rows={10}
                           autoComplete="off"
                           spellCheck={false}
+                          data-voice-disabled="true"
                           data-testid={`system-settings-set-input-${settingKey}`}
                           className={cn(
                             "border-input placeholder:text-muted-foreground focus-visible:ring-ring/50 flex w-full rounded-md border bg-transparent px-3 py-2 text-sm font-mono shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
                           )}
                         />
                       ) : (
+                        // M005-oaptsz/S04/T03: single-line secret value
+                        // (webhook secret, etc). voice={false} forces the
+                        // Input primitive to render a raw <input> with no
+                        // mic — operator secrets must never be dictated.
                         <Input
                           {...field}
                           placeholder={placeholder}
                           autoComplete="off"
                           spellCheck={false}
                           type="text"
+                          voice={false}
+                          data-voice-disabled="true"
                           data-testid={`system-settings-set-input-${settingKey}`}
                         />
                       )}
