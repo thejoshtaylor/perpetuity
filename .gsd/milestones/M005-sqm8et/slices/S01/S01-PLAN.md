@@ -37,7 +37,7 @@ S01 closes the credential-storage boundary that S02–S06 read from. Every downs
   - Files: `backend/app/alembic/versions/s09_team_secrets.py`, `backend/app/models.py`, `backend/tests/migrations/test_s09_team_secrets_migration.py`
   - Verify: cd backend && uv run pytest tests/migrations/test_s09_team_secrets_migration.py -v
 
-- [ ] **T02: Per-key validator registry + service helpers (`get_team_secret`, encrypt/store)** `est:1 day`
+- [x] **T02: Per-key validator registry + service helpers (`get_team_secret`, encrypt/store)** `est:1 day`
   Add `backend/app/api/team_secrets_registry.py` with the `_VALIDATORS` dict shape mirroring `system_settings` (key → `{validator: Callable[[str], None], sensitive: bool}`). Register `claude_api_key` (sk-ant- prefix, length ≥ 40) and `openai_api_key` (sk- prefix, length ≥ 40). Add `backend/app/api/team_secrets.py` service module with: (a) `set_team_secret(session, team_id, key, plaintext)` — validates against registry, encrypts via `encrypt_setting`, upserts the row, commits; (b) `get_team_secret(session, team_id, key) -> str` — fetches the row (raises `MissingTeamSecretError` if not found), decrypts via `decrypt_setting`, raises `TeamSecretDecryptError(team_id, key)` on `cryptography.fernet.InvalidToken`; (c) `delete_team_secret(session, team_id, key) -> bool`; (d) `list_team_secret_status(session, team_id) -> list[TeamSecretStatus]`. Add unit tests covering each helper including the decrypt-failure path (tamper the value_encrypted, expect TeamSecretDecryptError).
   - Files: `backend/app/api/team_secrets_registry.py`, `backend/app/api/team_secrets.py`, `backend/tests/api/test_team_secrets_helpers.py`
   - Verify: cd backend && uv run pytest tests/api/test_team_secrets_helpers.py -v
