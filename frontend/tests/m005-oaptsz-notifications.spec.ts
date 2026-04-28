@@ -58,7 +58,14 @@ test.describe("M005-oaptsz notifications bell", () => {
 
     await item.click()
 
-    // Badge clears within ~1s once the markRead invalidation fires.
-    await expect(badge).toBeHidden({ timeout: 2000 })
+    // The seeded item must flip to data-unread='false' once markRead settles.
+    // We assert on the item rather than the bell badge because the seeded
+    // superuser is shared with sibling specs (M005-oaptsz/S02/T05 preferences
+    // contract) that may have their own unread items in flight; the badge is
+    // a global counter and would race, but the seeded item's read-state is
+    // local to this test.
+    await expect(item).toHaveAttribute("data-unread", "false", {
+      timeout: 2000,
+    })
   })
 })

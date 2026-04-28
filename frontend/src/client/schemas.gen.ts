@@ -516,15 +516,22 @@ export const NotificationTestTriggerSchema = {
             type: 'string',
             title: 'Message',
             default: 'System test notification'
+        },
+        kind: {
+            '$ref': '#/components/schemas/NotificationKind',
+            default: 'system'
         }
     },
     type: 'object',
     title: 'NotificationTestTrigger',
     description: `POST /api/v1/notifications/test body — system-admin seed trigger.
 
-Inserts a \`kind=system\` notification row for the recipient (defaults to
-the calling admin when \`\`user_id\`\` is omitted). Used to prove the bell
-wiring without depending on a real invite/project flow.`
+Inserts a notification row for the recipient (defaults to the calling
+admin when \`\`user_id\`\` is omitted). Used to prove the bell wiring without
+depending on a real invite/project flow. \`\`kind\`\` defaults to \`\`system\`\`;
+M005/S02/T05 widened it to optionally accept any NotificationKind so the
+preferences contract spec can fire a \`team_invite_accepted\` and assert
+that a preference toggle actually suppresses the in_app insert.`
 } as const;
 
 export const NotificationUnreadCountSchema = {

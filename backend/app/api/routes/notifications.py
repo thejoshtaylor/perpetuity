@@ -162,39 +162,42 @@ def mark_all_read(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/test", response_model=NotificationPublic)
+@router.post("/test", response_model=NotificationPublic | None)
 def trigger_test_notification(
     body: NotificationTestTrigger,
     session: SessionDep,
     actor: User = Depends(get_current_active_superuser),
-) -> NotificationPublic:
-    """Insert a `kind=system` notification — gated to system_admin.
+) -> NotificationPublic | None:
+    """Insert a notification — gated to system_admin.
 
     Useful as a seed-truth path so an operator can prove the bell renders
     a real row even when no invite/project flow has fired yet. ``user_id``
-    in the body resolves to ``actor.id`` when omitted. If the recipient has
-    suppressed the ``system`` channel, ``notify()`` returns None and we
-    surface 500 ``system_channel_suppressed`` so the operator can tell the
-    difference between a wiring bug and an opted-out user.
+    in the body resolves to ``actor.id`` when omitted. ``kind`` defaults to
+    ``system`` but the M005/S02/T05 preferences contract spec needs to fire
+    a `team_invite_accepted` so it can prove that a `team_invite_accepted →
+    in_app=false` preference actually suppresses the insert. When notify()
+    returns None because the recipient has the kind suppressed, return 200
+    with a null body — that is a valid contract outcome (preference enforced),
+    not an error. A failed insert (DB exception) is logged inside notify()
+    and re-surfaces here as the same null contract; the spec tests row
+    existence directly via the list endpoint, so it can distinguish the
+    two cases.
     """
     target_user_id = body.user_id or actor.id
     logger.info(
-        "notifications.test_triggered actor_id=%s target_user_id=%s",
+        "notifications.test_triggered actor_id=%s target_user_id=%s kind=%s",
         actor.id,
         target_user_id,
+        body.kind.value,
     )
     row = notify(
         session,
         user_id=target_user_id,
-        kind=NotificationKind.system,
+        kind=body.kind,
         payload={"message": body.message},
     )
     if row is None:
-        # Either the system channel is opted out or the insert failed.
-        # The notify() helper has already logged the actual cause.
-        raise HTTPException(
-            status_code=500, detail="system_channel_suppressed"
-        )
+        return None
     return NotificationPublic.model_validate(row, from_attributes=True)
 
 

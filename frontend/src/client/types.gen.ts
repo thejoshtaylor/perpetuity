@@ -124,13 +124,17 @@ export type NotificationsPublic = {
 /**
  * POST /api/v1/notifications/test body — system-admin seed trigger.
  *
- * Inserts a `kind=system` notification row for the recipient (defaults to
- * the calling admin when ``user_id`` is omitted). Used to prove the bell
- * wiring without depending on a real invite/project flow.
+ * Inserts a notification row for the recipient (defaults to the calling
+ * admin when ``user_id`` is omitted). Used to prove the bell wiring without
+ * depending on a real invite/project flow. ``kind`` defaults to ``system``;
+ * M005/S02/T05 widened it to optionally accept any NotificationKind so the
+ * preferences contract spec can fire a `team_invite_accepted` and assert
+ * that a preference toggle actually suppresses the in_app insert.
  */
 export type NotificationTestTrigger = {
     user_id?: (string | null);
     message?: string;
+    kind?: NotificationKind;
 };
 
 export type NotificationUnreadCount = {
@@ -493,7 +497,7 @@ export type NotificationsTriggerTestNotificationData = {
     requestBody: NotificationTestTrigger;
 };
 
-export type NotificationsTriggerTestNotificationResponse = (NotificationPublic);
+export type NotificationsTriggerTestNotificationResponse = ((NotificationPublic | null));
 
 export type NotificationsListPreferencesResponse = (Array<NotificationPreferencePublic>);
 

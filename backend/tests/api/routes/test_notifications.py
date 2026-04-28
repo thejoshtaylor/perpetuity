@@ -480,3 +480,77 @@ def test_notifications_test_endpoint_creates_system_kind(
     assert r_list.status_code == 200
     kinds = {row["kind"] for row in r_list.json()["data"]}
     assert "system" in kinds
+
+
+def test_notifications_test_endpoint_respects_kind_override_and_preference(
+    client: TestClient, db: Session, superuser_cookies: httpx.Cookies
+):
+    """T05 contract: the test endpoint accepts a `kind` body override gated
+    to system_admin, and a per-event-type preference of in_app=False causes
+    the resulting notify() call to skip the insert (200 with null body)."""
+    # Resolve the superuser id from /users/me — we need it to seed a
+    # preference row keyed on (user_id, workflow_id NULL, event_type).
+    r_me = client.get(f"{API}/users/me", cookies=superuser_cookies)
+    assert r_me.status_code == 200, r_me.text
+    admin_id = uuid.UUID(r_me.json()["id"])
+
+    # Seed: team_invite_accepted in_app=false for the admin themselves.
+    db.add(
+        NotificationPreference(
+            user_id=admin_id,
+            workflow_id=None,
+            event_type="team_invite_accepted",
+            in_app=False,
+            push=False,
+        )
+    )
+    db.commit()
+
+    # Fire the test endpoint with kind=team_invite_accepted — preference
+    # must short-circuit the insert.
+    r1 = client.post(
+        f"{NOTIF_URL}/test",
+        json={"message": "should be suppressed",
+              "kind": "team_invite_accepted"},
+        cookies=superuser_cookies,
+    )
+    assert r1.status_code == 200, r1.text
+    assert r1.json() is None
+
+    rows_after_off = db.exec(
+        select(Notification).where(
+            Notification.user_id == admin_id,
+            Notification.kind == "team_invite_accepted",
+        )
+    ).all()
+    assert rows_after_off == []
+
+    # Flip the preference back on; the same call must now insert.
+    pref = db.exec(
+        select(NotificationPreference).where(
+            NotificationPreference.user_id == admin_id,
+            NotificationPreference.event_type == "team_invite_accepted",
+        )
+    ).one()
+    pref.in_app = True
+    db.add(pref)
+    db.commit()
+
+    r2 = client.post(
+        f"{NOTIF_URL}/test",
+        json={"message": "should land",
+              "kind": "team_invite_accepted"},
+        cookies=superuser_cookies,
+    )
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body is not None
+    assert body["kind"] == "team_invite_accepted"
+
+    rows_after_on = db.exec(
+        select(Notification).where(
+            Notification.user_id == admin_id,
+            Notification.kind == "team_invite_accepted",
+        )
+    ).all()
+    assert len(rows_after_on) == 1
