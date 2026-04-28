@@ -3,8 +3,10 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Suspense } from "react"
 
 import { TeamsService, type TeamWithRole, UsersService } from "@/client"
+import ConnectionsList from "@/components/Teams/GitHub/ConnectionsList"
 import InviteButton from "@/components/Teams/InviteButton"
 import MembersList, { MembersListPending } from "@/components/Teams/MembersList"
+import AlwaysOnToggle from "@/components/Teams/Mirror/AlwaysOnToggle"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -114,6 +116,28 @@ function TeamDetailContent() {
           />
         </Suspense>
       </section>
+
+      {callerIsAdmin && (
+        <section
+          className="flex flex-col gap-2"
+          data-testid="connections-section"
+          aria-label="GitHub connections"
+        >
+          <h2 className="text-sm font-medium">GitHub connections</h2>
+          <ConnectionsList teamId={team.id} callerIsAdmin={callerIsAdmin} />
+        </section>
+      )}
+
+      {callerIsAdmin && !team.is_personal && (
+        <section
+          className="flex flex-col gap-2"
+          data-testid="mirror-section"
+          aria-label="Team mirror settings"
+        >
+          <h2 className="text-sm font-medium">Mirror</h2>
+          <AlwaysOnToggle teamId={team.id} />
+        </section>
+      )}
     </div>
   )
 }
