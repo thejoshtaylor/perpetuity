@@ -59,7 +59,10 @@ test.describe("M005-oaptsz S03 push slice contract", () => {
       const resp = await ctx.request.post(
         "/api/v1/admin/settings/vapid_keys/generate",
       )
-      expect(resp.status(), `vapid_keys/generate must succeed: ${await resp.text()}`).toBe(200)
+      expect(
+        resp.status(),
+        `vapid_keys/generate must succeed: ${await resp.text()}`,
+      ).toBe(200)
       const body = (await resp.json()) as { public_key: string }
       expect(body.public_key.length).toBeGreaterThan(0)
     } finally {
@@ -238,8 +241,7 @@ test.describe("M005-oaptsz S03 push slice contract", () => {
         // on the first navigation. Reach the SW via registration.active
         // instead — same SW, just not promoted to controller-of-this-page.
         const reg = await navigator.serviceWorker.getRegistration()
-        const target =
-          navigator.serviceWorker.controller ?? reg?.active ?? null
+        const target = navigator.serviceWorker.controller ?? reg?.active ?? null
         if (!target) throw new Error("no active SW to postMessage to")
         target.postMessage({
           type: "TEST_PUSH",

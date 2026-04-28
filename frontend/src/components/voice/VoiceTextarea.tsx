@@ -1,5 +1,5 @@
-import * as React from "react"
 import { Mic, Square } from "lucide-react"
+import * as React from "react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -21,12 +21,12 @@ function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 
 function buildTextareaChangeEvent(
   element: HTMLTextAreaElement,
-  value: string
+  value: string,
 ): React.ChangeEvent<HTMLTextAreaElement> {
-  Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set?.call(
-    element,
-    value
-  )
+  Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  )?.set?.call(element, value)
   return {
     target: element,
     currentTarget: element,
@@ -60,11 +60,22 @@ function shouldHideVoiceControl(props: VoiceTextareaProps) {
     .filter(Boolean)
     .join(" ")
     .toLowerCase()
-  return /password|otp|one-time|verification|secret|token|code/.test(sensitiveText)
+  return /password|otp|one-time|verification|secret|token|code/.test(
+    sensitiveText,
+  )
 }
 
 const VoiceTextarea = React.forwardRef<HTMLTextAreaElement, VoiceTextareaProps>(
-  ({ className, onChange, voice: _voice, voiceSensitive: _voiceSensitive, ...props }, ref) => {
+  (
+    {
+      className,
+      onChange,
+      voice: _voice,
+      voiceSensitive: _voiceSensitive,
+      ...props
+    },
+    ref,
+  ) => {
     const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
     const shouldHide = shouldHideVoiceControl({
       ...props,
@@ -76,15 +87,21 @@ const VoiceTextarea = React.forwardRef<HTMLTextAreaElement, VoiceTextareaProps>(
       (transcript: string) => {
         const element = textareaRef.current
         if (!element) return
-        const currentValue = typeof props.value === "string" ? props.value : element.value
+        const currentValue =
+          typeof props.value === "string" ? props.value : element.value
         const nextValue = appendTranscript(currentValue, transcript)
         onChange?.(buildTextareaChangeEvent(element, nextValue))
       },
-      [onChange, props.value]
+      [onChange, props.value],
     )
 
     const recorder = useVoiceRecorder({ onTranscribed: injectTranscript })
-    const describedBy = [props["aria-describedby"], recorder.error ? `${props.id ?? props.name ?? "voice-textarea"}-voice-error` : undefined]
+    const describedBy = [
+      props["aria-describedby"],
+      recorder.error
+        ? `${props.id ?? props.name ?? "voice-textarea"}-voice-error`
+        : undefined,
+    ]
       .filter(Boolean)
       .join(" ")
 
@@ -119,10 +136,17 @@ const VoiceTextarea = React.forwardRef<HTMLTextAreaElement, VoiceTextareaProps>(
           />
           <div className="absolute right-1 top-1 flex min-h-11 items-center gap-1">
             {(recorder.isRecording || recorder.isUploading) && (
-              <Waveform active={recorder.isRecording} levels={recorder.levels} />
+              <Waveform
+                active={recorder.isRecording}
+                levels={recorder.levels}
+              />
             )}
             <Button
-              aria-label={recorder.isRecording ? "Stop voice dictation" : "Start voice dictation"}
+              aria-label={
+                recorder.isRecording
+                  ? "Stop voice dictation"
+                  : "Start voice dictation"
+              }
               className="min-h-11 min-w-11"
               data-testid="voice-textarea-toggle"
               disabled={recorder.isUploading}
@@ -131,7 +155,11 @@ const VoiceTextarea = React.forwardRef<HTMLTextAreaElement, VoiceTextareaProps>(
               type="button"
               variant="ghost"
             >
-              {recorder.isRecording ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
+              {recorder.isRecording ? (
+                <Square aria-hidden="true" />
+              ) : (
+                <Mic aria-hidden="true" />
+              )}
             </Button>
           </div>
         </div>
@@ -147,7 +175,7 @@ const VoiceTextarea = React.forwardRef<HTMLTextAreaElement, VoiceTextareaProps>(
         )}
       </div>
     )
-  }
+  },
 )
 
 VoiceTextarea.displayName = "VoiceTextarea"

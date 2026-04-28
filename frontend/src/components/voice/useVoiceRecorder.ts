@@ -61,7 +61,7 @@ const emptyLevels = Array.from({ length: WAVEFORM_BARS }, () => 0)
 
 function emitVoiceDiagnostic(
   event: string,
-  detail: Record<string, string | number | boolean | undefined> = {}
+  detail: Record<string, string | number | boolean | undefined> = {},
 ) {
   console.info(`voice.recorder.${event}`, detail)
 }
@@ -72,8 +72,9 @@ function getSupportedMimeType(): string | null {
     return "audio/webm"
   }
   return (
-    MIME_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ??
-    null
+    MIME_CANDIDATES.find((candidate) =>
+      MediaRecorder.isTypeSupported(candidate),
+    ) ?? null
   )
 }
 
@@ -82,12 +83,14 @@ function normalizeError(error: unknown): VoiceRecorderError {
     if (error.name === "NotAllowedError" || error.name === "SecurityError") {
       return {
         kind: "permission",
-        message: "Microphone permission was denied. Enable mic access and try again.",
+        message:
+          "Microphone permission was denied. Enable mic access and try again.",
       }
     }
     return {
       kind: "api",
-      message: "Microphone could not start. Check your input device and try again.",
+      message:
+        "Microphone could not start. Check your input device and try again.",
     }
   }
 
@@ -165,12 +168,14 @@ export function useVoiceRecorder({
       setError(normalized)
       setStatus("error")
       emitVoiceDiagnostic(
-        normalized.kind === "permission" ? "permission_denied" : "upload_failed",
-        { kind: normalized.kind, retryAfter: normalized.retryAfter }
+        normalized.kind === "permission"
+          ? "permission_denied"
+          : "upload_failed",
+        { kind: normalized.kind, retryAfter: normalized.retryAfter },
       )
       onError?.(normalized)
     },
-    [onError]
+    [onError],
   )
 
   const cleanup = React.useCallback(() => {
@@ -229,12 +234,19 @@ export function useVoiceRecorder({
     async (blob: Blob, mimeType: string) => {
       if (!blob.size) throw new Error("voice_empty_audio")
       setStatus("uploading")
-      const file = new File([blob], `voice-recording.${fileExtensionForMime(mimeType)}`, {
-        type: mimeType,
-      })
+      const file = new File(
+        [blob],
+        `voice-recording.${fileExtensionForMime(mimeType)}`,
+        {
+          type: mimeType,
+        },
+      )
       const request = VoiceService.transcribeVoice({ formData: { file } })
       refs.current.uploadRequest = request
-      const timeout = window.setTimeout(() => request.cancel(), UPLOAD_TIMEOUT_MS)
+      const timeout = window.setTimeout(
+        () => request.cancel(),
+        UPLOAD_TIMEOUT_MS,
+      )
 
       try {
         const result = await request
@@ -255,12 +267,15 @@ export function useVoiceRecorder({
         refs.current.uploadRequest = null
       }
     },
-    [onTranscribed]
+    [onTranscribed],
   )
 
   const start = React.useCallback(async () => {
     setError(null)
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
       publishError({ message: "voice_unsupported" })
       return
     }
@@ -296,7 +311,9 @@ export function useVoiceRecorder({
       recorder.onstop = () => {
         const chunks = refs.current.chunks
         cleanup()
-        upload(new Blob(chunks, { type: mimeType }), mimeType).catch(publishError)
+        upload(new Blob(chunks, { type: mimeType }), mimeType).catch(
+          publishError,
+        )
       }
       recorder.start()
       setStatus("recording")

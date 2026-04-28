@@ -168,10 +168,7 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
                       {/* M005-oaptsz/S04/T03: see AddUser.tsx — use
                           PasswordInput so password fields can never accidentally
                           render a mic if the primitive heuristic regresses. */}
-                      <PasswordInput
-                        placeholder="Password"
-                        {...field}
-                      />
+                      <PasswordInput placeholder="Password" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -185,10 +182,7 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
-                      <PasswordInput
-                        placeholder="Password"
-                        {...field}
-                      />
+                      <PasswordInput placeholder="Password" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

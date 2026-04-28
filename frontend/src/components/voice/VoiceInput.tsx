@@ -1,5 +1,5 @@
-import * as React from "react"
 import { Mic, Square } from "lucide-react"
+import * as React from "react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -21,12 +21,12 @@ function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 
 function buildChangeEvent<T extends HTMLInputElement | HTMLTextAreaElement>(
   element: T,
-  value: string
+  value: string,
 ): React.ChangeEvent<T> {
-  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(
-    element,
-    value
-  )
+  Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set?.call(element, value)
   return {
     target: element,
     currentTarget: element,
@@ -57,19 +57,46 @@ function shouldHideVoiceControl(props: VoiceInputProps) {
   if (props.disabled || props.readOnly) return true
 
   const type = props.type ?? "text"
-  if (["password", "hidden", "file", "checkbox", "radio", "submit", "button"].includes(type)) {
+  if (
+    [
+      "password",
+      "hidden",
+      "file",
+      "checkbox",
+      "radio",
+      "submit",
+      "button",
+    ].includes(type)
+  ) {
     return true
   }
 
-  const sensitiveText = [props.name, props.id, props.autoComplete, props.inputMode]
+  const sensitiveText = [
+    props.name,
+    props.id,
+    props.autoComplete,
+    props.inputMode,
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase()
-  return /password|otp|one-time|verification|secret|token|code/.test(sensitiveText)
+  return /password|otp|one-time|verification|secret|token|code/.test(
+    sensitiveText,
+  )
 }
 
 const VoiceInput = React.forwardRef<HTMLInputElement, VoiceInputProps>(
-  ({ className, type, onChange, voice: _voice, voiceSensitive: _voiceSensitive, ...props }, ref) => {
+  (
+    {
+      className,
+      type,
+      onChange,
+      voice: _voice,
+      voiceSensitive: _voiceSensitive,
+      ...props
+    },
+    ref,
+  ) => {
     const inputRef = React.useRef<HTMLInputElement | null>(null)
     const shouldHide = shouldHideVoiceControl({
       ...props,
@@ -82,15 +109,21 @@ const VoiceInput = React.forwardRef<HTMLInputElement, VoiceInputProps>(
       (transcript: string) => {
         const element = inputRef.current
         if (!element) return
-        const currentValue = typeof props.value === "string" ? props.value : element.value
+        const currentValue =
+          typeof props.value === "string" ? props.value : element.value
         const nextValue = appendTranscript(currentValue, transcript)
         onChange?.(buildChangeEvent(element, nextValue))
       },
-      [onChange, props.value]
+      [onChange, props.value],
     )
 
     const recorder = useVoiceRecorder({ onTranscribed: injectTranscript })
-    const describedBy = [props["aria-describedby"], recorder.error ? `${props.id ?? props.name ?? "voice-input"}-voice-error` : undefined]
+    const describedBy = [
+      props["aria-describedby"],
+      recorder.error
+        ? `${props.id ?? props.name ?? "voice-input"}-voice-error`
+        : undefined,
+    ]
       .filter(Boolean)
       .join(" ")
 
@@ -127,10 +160,17 @@ const VoiceInput = React.forwardRef<HTMLInputElement, VoiceInputProps>(
           />
           <div className="absolute right-1 flex min-h-11 items-center gap-1">
             {(recorder.isRecording || recorder.isUploading) && (
-              <Waveform active={recorder.isRecording} levels={recorder.levels} />
+              <Waveform
+                active={recorder.isRecording}
+                levels={recorder.levels}
+              />
             )}
             <Button
-              aria-label={recorder.isRecording ? "Stop voice dictation" : "Start voice dictation"}
+              aria-label={
+                recorder.isRecording
+                  ? "Stop voice dictation"
+                  : "Start voice dictation"
+              }
               className="min-h-11 min-w-11"
               data-testid="voice-input-toggle"
               disabled={recorder.isUploading}
@@ -139,7 +179,11 @@ const VoiceInput = React.forwardRef<HTMLInputElement, VoiceInputProps>(
               type="button"
               variant="ghost"
             >
-              {recorder.isRecording ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
+              {recorder.isRecording ? (
+                <Square aria-hidden="true" />
+              ) : (
+                <Mic aria-hidden="true" />
+              )}
             </Button>
           </div>
         </div>
@@ -155,7 +199,7 @@ const VoiceInput = React.forwardRef<HTMLInputElement, VoiceInputProps>(
         )}
       </div>
     )
-  }
+  },
 )
 
 VoiceInput.displayName = "VoiceInput"

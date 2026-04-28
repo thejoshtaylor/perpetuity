@@ -19,7 +19,7 @@ function Waveform({ levels, active = false, className }: WaveformProps) {
           key={index}
           className={cn(
             "w-0.5 rounded-full bg-primary/60 transition-[height,opacity] duration-100",
-            active ? "opacity-100" : "opacity-35"
+            active ? "opacity-100" : "opacity-35",
           )}
           style={{ height: `${Math.max(4, Math.round(4 + level * 16))}px` }}
         />

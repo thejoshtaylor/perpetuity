@@ -61,7 +61,10 @@ test.describe("M005-oaptsz mobile audit", () => {
       body: "voice-mic visibility + 44x44 floor on /login (M005-oaptsz/S04/T03)",
       contentType: "text/plain",
     })
-    await page.context().clearCookies().catch(() => {})
+    await page
+      .context()
+      .clearCookies()
+      .catch(() => {})
     await page.goto("/login")
     await page.waitForLoadState("networkidle").catch(() => {})
 

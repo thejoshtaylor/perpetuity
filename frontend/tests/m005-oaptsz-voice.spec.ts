@@ -90,9 +90,7 @@ async function installRecorderMocks(
         return true
       }
       state: "inactive" | "recording" = "inactive"
-      ondataavailable:
-        | ((event: { data: Blob }) => void)
-        | null = null
+      ondataavailable: ((event: { data: Blob }) => void) | null = null
       onstop: (() => void) | null = null
       onerror: ((event: unknown) => void) | null = null
       mimeType: string
@@ -103,7 +101,9 @@ async function installRecorderMocks(
         this.state = "recording"
         // Push a tiny non-empty blob so the upload path actually runs.
         setTimeout(() => {
-          this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])]) })
+          this.ondataavailable?.({
+            data: new Blob([new Uint8Array([1, 2, 3])]),
+          })
         }, 0)
       }
       stop() {
@@ -114,8 +114,9 @@ async function installRecorderMocks(
         }, 0)
       }
     }
-    ;(window as unknown as { MediaRecorder: typeof FakeMediaRecorder }).MediaRecorder =
-      FakeMediaRecorder
+    ;(
+      window as unknown as { MediaRecorder: typeof FakeMediaRecorder }
+    ).MediaRecorder = FakeMediaRecorder
   }, transcript)
 }
 
@@ -180,10 +181,7 @@ test.describe("M005-oaptsz voice — universal coverage and opt-outs", () => {
     await mic.click()
     // Mic flips to "Stop" once recording starts — the aria-label is the only
     // user-visible state change.
-    await expect(mic).toHaveAttribute(
-      "aria-label",
-      "Stop voice dictation",
-    )
+    await expect(mic).toHaveAttribute("aria-label", "Stop voice dictation")
 
     await mic.click()
 
@@ -273,9 +271,7 @@ test.describe("M005-oaptsz voice — sensitive opt-outs", () => {
     // Email + Full name fields are eligible — they must render mic toggles.
     // Wait until at least one mic is visible before counting password mics so
     // a slow render doesn't make the negative assertion vacuous.
-    await expect(
-      dialog.getByTestId("voice-input-toggle").first(),
-    ).toBeVisible()
+    await expect(dialog.getByTestId("voice-input-toggle").first()).toBeVisible()
 
     // Password and Confirm Password use PasswordInput — the show/hide toggle
     // has aria-label "Show password" / "Hide password", which is the only
@@ -339,8 +335,6 @@ test.describe("M005-oaptsz voice — sensitive opt-outs", () => {
     // last opt-out gate; a regression here would leak operator material into
     // the recorder upload.
     await expect(dialog.getByTestId("voice-input-toggle")).toHaveCount(0)
-    await expect(
-      dialog.getByTestId("voice-textarea-toggle"),
-    ).toHaveCount(0)
+    await expect(dialog.getByTestId("voice-textarea-toggle")).toHaveCount(0)
   })
 })
