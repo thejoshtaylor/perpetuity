@@ -1183,3 +1183,61 @@ def test_encryption_key_unset_at_decrypt_call_raises_runtime_error(
             _enc.encrypt_setting("anything")
     finally:
         _enc._load_key.cache_clear()
+
+
+# --- Voice settings registry ----------------------------------------------
+
+
+def test_put_grok_stt_api_key_is_sensitive_and_redacted(
+    client: TestClient,
+    superuser_cookies: httpx.Cookies,
+    db: Session,
+) -> None:
+    value = "xai-test-secret"
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/grok_stt_api_key",
+        json={"value": value},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["key"] == "grok_stt_api_key"
+    assert r.json()["value"] is None
+
+    db.expire_all()
+    row = db.exec(
+        select(SystemSetting).where(SystemSetting.key == "grok_stt_api_key")
+    ).one()
+    assert row.sensitive is True
+    assert row.has_value is True
+    assert row.value is None
+    assert row.value_encrypted is not None
+    assert value.encode("utf-8") not in row.value_encrypted
+
+    g = client.get(
+        f"{ADMIN_SETTINGS_URL}/grok_stt_api_key",
+        cookies=superuser_cookies,
+    )
+    assert g.status_code == 200
+    assert g.json()["value"] is None
+    assert g.json()["sensitive"] is True
+    assert g.json()["has_value"] is True
+
+
+def test_put_max_voice_transcribes_per_hour_global_validates_range(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    ok = client.put(
+        f"{ADMIN_SETTINGS_URL}/max_voice_transcribes_per_hour_global",
+        json={"value": 3600},
+        cookies=superuser_cookies,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["value"] == 3600
+
+    bad = client.put(
+        f"{ADMIN_SETTINGS_URL}/max_voice_transcribes_per_hour_global",
+        json={"value": 0},
+        cookies=superuser_cookies,
+    )
+    assert bad.status_code == 422
+    assert bad.json()["detail"]["detail"] == "invalid_value_for_key"

@@ -15,6 +15,7 @@ from app.api.routes import (
     teams,
     users,
     utils,
+    voice,
     ws,
 )
 from app.core.config import settings
@@ -34,6 +35,7 @@ api_router.include_router(sessions.router)
 api_router.include_router(projects.router)
 api_router.include_router(notifications.router)
 api_router.include_router(push.router)
+api_router.include_router(voice.router)
 
 
 if settings.ENVIRONMENT == "local":

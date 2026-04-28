@@ -23,8 +23,6 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
-    NoEncryption,
-    PrivateFormat,
     PublicFormat,
 )
 from fastapi import APIRouter, Depends, HTTPException
@@ -211,6 +209,8 @@ def promote_system_admin(
 WORKSPACE_VOLUME_SIZE_GB_KEY = "workspace_volume_size_gb"
 IDLE_TIMEOUT_SECONDS_KEY = "idle_timeout_seconds"
 MIRROR_IDLE_TIMEOUT_SECONDS_KEY = "mirror_idle_timeout_seconds"
+GROK_STT_API_KEY = "grok_stt_api_key"
+MAX_VOICE_TRANSCRIBES_PER_HOUR_GLOBAL = "max_voice_transcribes_per_hour_global"
 
 GITHUB_APP_ID_KEY = "github_app_id"
 GITHUB_APP_CLIENT_ID_KEY = "github_app_client_id"
@@ -345,6 +345,28 @@ def _validate_mirror_idle_timeout_seconds(value: Any) -> None:
                 "detail": "invalid_value_for_key",
                 "key": MIRROR_IDLE_TIMEOUT_SECONDS_KEY,
                 "reason": "must be int in 60..86400",
+            },
+        )
+
+
+def _validate_max_voice_transcribes_per_hour_global(value: Any) -> None:
+    """Global per-hour voice transcription budget — int in 1..1_000_000."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": MAX_VOICE_TRANSCRIBES_PER_HOUR_GLOBAL,
+                "reason": "must be int in 1..1000000",
+            },
+        )
+    if not (1 <= value <= 1_000_000):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "invalid_value_for_key",
+                "key": MAX_VOICE_TRANSCRIBES_PER_HOUR_GLOBAL,
+                "reason": "must be int in 1..1000000",
             },
         )
 
@@ -566,6 +588,16 @@ _VALIDATORS: dict[str, _SettingSpec] = {
     ),
     MIRROR_IDLE_TIMEOUT_SECONDS_KEY: _SettingSpec(
         validator=_validate_mirror_idle_timeout_seconds,
+        sensitive=False,
+        generator=None,
+    ),
+    GROK_STT_API_KEY: _SettingSpec(
+        validator=None,
+        sensitive=True,
+        generator=None,
+    ),
+    MAX_VOICE_TRANSCRIBES_PER_HOUR_GLOBAL: _SettingSpec(
+        validator=_validate_max_voice_transcribes_per_hour_global,
         sensitive=False,
         generator=None,
     ),

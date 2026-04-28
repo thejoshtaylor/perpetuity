@@ -265,6 +265,10 @@ class SystemSettingGenerateResponse(SQLModel):
     updated_at: datetime | None = None
 
 
+class VoiceTranscribeResponse(SQLModel):
+    text: str
+
+
 # Per-team GitHub App installation. After a team admin walks through the
 # GitHub App install handshake, the install-callback persists one row here
 # scoped to the originating team. The orchestrator looks up by team_id when
