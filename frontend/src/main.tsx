@@ -1,3 +1,4 @@
+import { registerSW } from "virtual:pwa-register"
 import {
   MutationCache,
   QueryCache,
@@ -45,6 +46,31 @@ const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onError: handleApiError,
   }),
+})
+
+// PWA service-worker registration (M005-oaptsz/S01/T01). The SW handles its
+// own /api/* + /ws/* bypass; here we surface lifecycle signals so a future
+// agent debugging install/refresh issues can read them from DevTools console
+// and so T03's install banner can listen for `pwa-update-available`.
+const updateSW = registerSW({
+  onRegisteredSW(scriptUrl) {
+    console.info(`pwa.sw.registered script=${scriptUrl}`)
+  },
+  onRegisterError(error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.info(`pwa.sw.register_failed reason=${reason}`)
+  },
+  onNeedRefresh() {
+    console.info("pwa.sw.update_available")
+    window.dispatchEvent(
+      new CustomEvent("pwa-update-available", {
+        detail: { acceptUpdate: () => updateSW(true) },
+      }),
+    )
+  },
+  onOfflineReady() {
+    console.info("pwa.sw.offline_ready")
+  },
 })
 
 const router = createRouter({ routeTree, context: { queryClient } })
