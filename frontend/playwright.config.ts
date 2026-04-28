@@ -68,6 +68,34 @@ export default defineConfig({
       testIgnore: 'm004-guylpp.spec.ts',
     },
 
+    // M005-oaptsz/S01/T04: iOS mobile-audit project. Uses iPhone 13 device
+    // descriptor (390x844 viewport, ~414px logical width on landscape; close
+    // enough to the 414 viewport target in the slice plan). storageState +
+    // setup dependency mirror chromium so the audit walks authenticated
+    // routes as the seeded superuser.
+    {
+      name: 'iphone-13-mobile-safari',
+      use: {
+        ...devices['iPhone 13'],
+        storageState: 'playwright/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testIgnore: 'm004-guylpp.spec.ts',
+    },
+
+    // M005-oaptsz/S01/T04: desktop Firefox keyboard/mouse regression catch.
+    // Same auth + setup wiring; touch-target enforcement still catches
+    // tab-focus and pointer regressions on a non-WebKit/non-Chromium engine.
+    {
+      name: 'desktop-firefox',
+      use: {
+        ...devices['Desktop Firefox'],
+        storageState: 'playwright/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testIgnore: 'm004-guylpp.spec.ts',
+    },
+
     // M004/S06/T05: dedicated project that ONLY runs the m004-guylpp e2e.
     // Inherits the chromium auth state so the spec lands as the seeded
     // superuser for /admin/settings flows, but boots its own mock-github
