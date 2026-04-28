@@ -42,7 +42,7 @@ S01 closes the credential-storage boundary that S02–S06 read from. Every downs
   - Files: `backend/app/api/team_secrets_registry.py`, `backend/app/api/team_secrets.py`, `backend/tests/api/test_team_secrets_helpers.py`
   - Verify: cd backend && uv run pytest tests/api/test_team_secrets_helpers.py -v
 
-- [ ] **T03: Team-admin API router (PUT/GET/DELETE/list)** `est:1 day`
+- [x] **T03: Team-admin API router (PUT/GET/DELETE/list)** `est:1 day`
   Add `backend/app/api/routes/team_secrets.py` FastAPI router exposing `PUT /api/v1/teams/{team_id}/secrets/{key}`, `GET /api/v1/teams/{team_id}/secrets/{key}`, `GET /api/v1/teams/{team_id}/secrets`, `DELETE /api/v1/teams/{team_id}/secrets/{key}`. Use existing `assert_caller_is_team_admin` for write paths (PUT, DELETE) and `assert_caller_is_team_member` for read paths (both GETs). Map exceptions: unknown key → 400 `unregistered_key`; validator failure → 400 `invalid_value_shape`; missing row on single GET → 404 `team_secret_not_set`; `MissingTeamSecretError` from helper → 404 (used downstream); `TeamSecretDecryptError` → 503 `team_secret_decrypt_failed` via global exception handler in `backend/app/main.py` (mirroring M004's `SystemSettingDecryptError` handler). Emit INFO log `team_secret_set` on successful PUT and `team_secret_deleted` on successful DELETE (team_id + key only, never the value). Register the router in `backend/app/api/main.py`.
   - Files: `backend/app/api/routes/team_secrets.py`, `backend/app/api/main.py`, `backend/app/main.py`, `backend/tests/api/test_team_secrets_routes.py`
   - Verify: cd backend && uv run pytest tests/api/test_team_secrets_routes.py -v

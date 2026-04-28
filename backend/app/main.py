@@ -7,6 +7,10 @@ from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
+from app.api.team_secrets import (
+    MissingTeamSecretError,
+    TeamSecretDecryptError,
+)
 from app.core.config import settings
 from app.core.encryption import SystemSettingDecryptError
 
@@ -46,6 +50,49 @@ async def _system_settings_decrypt_failed_handler(
         status_code=503,
         content={
             "detail": "system_settings_decrypt_failed",
+            "key": exc.key,
+        },
+    )
+
+
+# Mirrors the system-scoped handler above for team-scoped secrets (M005/S01).
+# `get_team_secret` is the single decrypt site for `team_secrets` rows; on
+# `cryptography.fernet.InvalidToken` it raises `TeamSecretDecryptError`. The
+# handler translates that into a 503 with a stable detail key and emits an
+# ERROR log naming team_id + key only. The plaintext, ciphertext, and any
+# value prefix MUST NOT appear in either surface — the redaction sweep
+# extension in S01 (`sk-`, `sk-ant-`) gates this.
+@app.exception_handler(TeamSecretDecryptError)
+async def _team_secret_decrypt_failed_handler(
+    _request: Request, exc: TeamSecretDecryptError
+) -> JSONResponse:
+    logger.error(
+        "team_secret_decrypt_failed team_id=%s key=%s",
+        exc.team_id,
+        exc.key,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "team_secret_decrypt_failed",
+            "key": exc.key,
+        },
+    )
+
+
+# Downstream callers (S02+) catch `MissingTeamSecretError` directly to
+# surface step-level "missing_team_secret" errors. The HTTP fan-in here is
+# for the rarer case where the helper bubbles up through a request handler
+# unguarded — translates to 404 with the same shape the GET-single route
+# returns when a row is absent so clients see one consistent error key.
+@app.exception_handler(MissingTeamSecretError)
+async def _team_secret_not_set_handler(
+    _request: Request, exc: MissingTeamSecretError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "team_secret_not_set",
             "key": exc.key,
         },
     )

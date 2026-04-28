@@ -12,6 +12,7 @@ from app.api.routes import (
     projects,
     push,
     sessions,
+    team_secrets,
     teams,
     users,
     utils,
@@ -25,6 +26,7 @@ api_router.include_router(auth.router)
 api_router.include_router(login.router)
 api_router.include_router(users.router)
 api_router.include_router(teams.router)
+api_router.include_router(team_secrets.router)
 api_router.include_router(admin.router)
 api_router.include_router(github.router)
 api_router.include_router(github_webhooks.router)
