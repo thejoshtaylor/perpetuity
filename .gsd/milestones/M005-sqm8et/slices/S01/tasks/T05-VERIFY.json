@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M005-sqm8et/S01/T05",
+  "timestamp": 1777415097255,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/integration/test_m005_s01_team_secrets_e2e.py -v",
+      "exitCode": 4,
+      "durationMs": 250,
+      "verdict": "fail"
+    },
+    {
+      "command": "bash scripts/redaction-sweep.sh",
+      "exitCode": 0,
+      "durationMs": 248,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

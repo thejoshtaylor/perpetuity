@@ -1049,3 +1049,351 @@ class VapidPublicKeyResponse(SQLModel):
     """Response for GET /api/v1/push/vapid_public_key (no auth)."""
 
     public_key: str
+
+
+# Workflow registry (M005/S02). One row per (team, name) — composite
+# uniqueness is enforced at the storage layer so re-running the system-
+# workflow auto-seed is safe and so S03's CRUD cannot silently shadow a
+# system workflow. ``system_owned=TRUE`` flags the auto-seeded rows
+# (`_direct_claude`, `_direct_codex`) so S03's CRUD UI can filter them
+# out of the listing (D028: those workflows are surfaced as dashboard
+# buttons, not as editable rows). Scope dictates dispatch shape — S02
+# only writes 'user'; 'team' / 'round_robin' land in S03's dispatcher.
+class WorkflowScope(str, enum.Enum):
+    user = "user"
+    team = "team"
+    round_robin = "round_robin"
+
+
+class WorkflowAction(str, enum.Enum):
+    claude = "claude"
+    codex = "codex"
+    shell = "shell"
+    git = "git"
+
+
+class Workflow(SQLModel, table=True):
+    __tablename__ = "workflows"
+    __table_args__ = (
+        UniqueConstraint(
+            "team_id", "name", name="uq_workflows_team_id_name"
+        ),
+        CheckConstraint(
+            "scope IN ('user', 'team', 'round_robin')",
+            name="ck_workflows_scope",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    name: str = Field(min_length=1, max_length=255, nullable=False)
+    description: str | None = Field(default=None, nullable=True)
+    scope: str = Field(default="user", max_length=32, nullable=False)
+    system_owned: bool = Field(default=False, nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# Per-workflow step row. step_index is dense within the parent (0..N-1),
+# enforced by UNIQUE (workflow_id, step_index). action is the executor-
+# dispatch discriminator; CHECK installs the closed set so S03's seed for
+# 'shell' / 'git' executors lands without an ALTER. config is the JSONB
+# tail — for S02's ``_direct_*`` workflows it is
+# ``{"prompt_template": "{prompt}"}``.
+class WorkflowStep(SQLModel, table=True):
+    __tablename__ = "workflow_steps"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_id",
+            "step_index",
+            name="uq_workflow_steps_workflow_id_step_index",
+        ),
+        CheckConstraint(
+            "action IN ('claude', 'codex', 'shell', 'git')",
+            name="ck_workflow_steps_action",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    workflow_id: uuid.UUID = Field(
+        foreign_key="workflows.id",
+        nullable=False,
+        ondelete="CASCADE",
+        index=True,
+    )
+    step_index: int = Field(nullable=False)
+    action: str = Field(max_length=64, nullable=False)
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="'{}'::jsonb"),
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class WorkflowStepPublic(SQLModel):
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    step_index: int
+    # Typed as the enum so OpenAPI emits the four literal values — the
+    # frontend client picks them up as a TS string-literal union.
+    action: WorkflowAction
+    config: dict[str, Any]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkflowPublic(SQLModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    name: str
+    description: str | None = None
+    # Typed as the enum so OpenAPI emits the three literal scope values.
+    scope: WorkflowScope
+    system_owned: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkflowsPublic(SQLModel):
+    data: list[WorkflowPublic]
+    count: int
+
+
+# DTO for the dashboard listing — combines the workflow row with its
+# ordered step rows so the frontend can render the action label without a
+# second roundtrip. S02 only reads this surface; the multi-step CRUD
+# write surface lands in S03.
+class WorkflowWithStepsPublic(SQLModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    name: str
+    description: str | None = None
+    scope: WorkflowScope
+    system_owned: bool
+    steps: list[WorkflowStepPublic]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# Per-run history. ``status`` lifecycle is pending → running →
+# (succeeded | failed | cancelled). ``error_class`` is the failure
+# discriminator — kept as VARCHAR rather than an enum because S03/S04/S05
+# layer in additional discriminators ('webhook_validation_failed', etc.);
+# the application layer is the source of truth for the closed set.
+# ``trigger_payload`` is JSONB and free-form — for ``_direct_*`` workflows
+# it is ``{"prompt": "<user text>"}``. ``last_heartbeat_at`` is reserved
+# for S05's worker-crash recovery; S02 sets it on transition into running.
+class WorkflowRunTriggerType(str, enum.Enum):
+    button = "button"
+    webhook = "webhook"
+    schedule = "schedule"
+    manual = "manual"
+    admin_manual = "admin_manual"
+
+
+class WorkflowRunStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class StepRunStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class WorkflowRun(SQLModel, table=True):
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "trigger_type IN ('button', 'webhook', 'schedule', 'manual', "
+            "'admin_manual')",
+            name="ck_workflow_runs_trigger_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', "
+            "'cancelled')",
+            name="ck_workflow_runs_status",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    workflow_id: uuid.UUID = Field(
+        foreign_key="workflows.id", nullable=False, ondelete="CASCADE"
+    )
+    team_id: uuid.UUID = Field(
+        foreign_key="team.id", nullable=False, ondelete="CASCADE"
+    )
+    trigger_type: str = Field(max_length=32, nullable=False)
+    triggered_by_user_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    target_user_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    trigger_payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="'{}'::jsonb"),
+    )
+    status: str = Field(default="pending", max_length=32, nullable=False)
+    error_class: str | None = Field(
+        default=None, max_length=64, nullable=True
+    )
+    started_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    finished_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    duration_ms: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    last_heartbeat_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# Per-step record. ``snapshot`` JSONB freezes the WorkflowStep row at
+# dispatch time — the contract is forever-frozen so editing the parent
+# WorkflowStep after dispatch must not change the historical record.
+# ``stdout`` / ``stderr`` ARE persisted (R018: forever-debuggable history);
+# the rest of the system never logs them. ``error_class`` is propagated up
+# to the parent run on failure.
+class StepRun(SQLModel, table=True):
+    __tablename__ = "step_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_run_id",
+            "step_index",
+            name="uq_step_runs_workflow_run_id_step_index",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', "
+            "'skipped')",
+            name="ck_step_runs_status",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    workflow_run_id: uuid.UUID = Field(
+        foreign_key="workflow_runs.id",
+        nullable=False,
+        ondelete="CASCADE",
+        index=True,
+    )
+    step_index: int = Field(nullable=False)
+    snapshot: dict[str, Any] = Field(
+        sa_column=Column(JSONB, nullable=False),
+    )
+    status: str = Field(default="pending", max_length=32, nullable=False)
+    stdout: str = Field(default="", nullable=False)
+    stderr: str = Field(default="", nullable=False)
+    exit_code: int | None = Field(default=None, nullable=True)
+    error_class: str | None = Field(
+        default=None, max_length=64, nullable=True
+    )
+    duration_ms: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    started_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    finished_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class StepRunPublic(SQLModel):
+    id: uuid.UUID
+    workflow_run_id: uuid.UUID
+    step_index: int
+    snapshot: dict[str, Any]
+    # Typed as the enum so OpenAPI emits the five status literals.
+    status: StepRunStatus
+    stdout: str
+    stderr: str
+    exit_code: int | None = None
+    error_class: str | None = None
+    duration_ms: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class WorkflowRunPublic(SQLModel):
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    team_id: uuid.UUID
+    # Typed as the enum so OpenAPI emits the five trigger_type literals.
+    trigger_type: WorkflowRunTriggerType
+    triggered_by_user_id: uuid.UUID | None = None
+    target_user_id: uuid.UUID | None = None
+    trigger_payload: dict[str, Any]
+    # Typed as the enum so OpenAPI emits the five status literals.
+    status: WorkflowRunStatus
+    error_class: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    last_heartbeat_at: datetime | None = None
+    created_at: datetime | None = None
+    step_runs: list[StepRunPublic] = Field(default_factory=list)
+
+
+# Dispatch DTO for POST /api/v1/workflows/{id}/run. ``trigger_payload`` is
+# free-form JSONB; for ``_direct_*`` workflows the route validates the
+# presence of a ``prompt`` key but lets the rest pass through.
+class WorkflowRunCreate(SQLModel):
+    trigger_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+# Response DTO for POST /api/v1/workflows/{id}/run. Just the run id +
+# initial status — the client polls GET /workflow_runs/{id} for the
+# transitions.
+class WorkflowRunDispatched(SQLModel):
+    run_id: uuid.UUID
+    status: WorkflowRunStatus
