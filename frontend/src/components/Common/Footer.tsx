@@ -32,7 +32,11 @@ export function Footer() {
               target="_blank"
               rel="noopener noreferrer"
               aria-label={label}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              // M005-oaptsz/S01: inline icon links inside the dense footer
+              // need a 44x44 hit area for the touch-target gate. inline-flex
+              // + min-h-11 + min-w-11 wraps the 20x20 icon in a transparent
+              // 44x44 shell without changing the visible icon size.
+              className="text-muted-foreground hover:text-foreground transition-colors inline-flex min-h-11 min-w-11 items-center justify-center"
             >
               <Icon className="h-5 w-5" />
             </a>

@@ -46,7 +46,10 @@ export default defineConfig({
       // under the default chromium project would fail because the compose
       // orchestrator points at the real api.github.com. The dedicated
       // m004-guylpp project below is the only place this spec runs.
-      testIgnore: 'm004-guylpp.spec.ts',
+      // M005-oaptsz/S01/T05: m005-oaptsz-sw-bypass needs the production
+      // build so the SW actually registers — the dedicated m005-oaptsz-sw
+      // project below is the only place that spec runs.
+      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
     },
 
     {
@@ -56,7 +59,7 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: 'm004-guylpp.spec.ts',
+      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
     },
 
     {
@@ -65,7 +68,7 @@ export default defineConfig({
         ...devices['Pixel 5'],
         storageState: { cookies: [], origins: [] },
       },
-      testIgnore: 'm004-guylpp.spec.ts',
+      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
     },
 
     // M005-oaptsz/S01/T04: iOS mobile-audit project. Uses iPhone 13 device
@@ -80,7 +83,7 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: 'm004-guylpp.spec.ts',
+      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
     },
 
     // M005-oaptsz/S01/T04: desktop Firefox keyboard/mouse regression catch.
@@ -93,7 +96,7 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: 'm004-guylpp.spec.ts',
+      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
     },
 
     // M004/S06/T05: dedicated project that ONLY runs the m004-guylpp e2e.
@@ -111,6 +114,26 @@ export default defineConfig({
       },
       dependencies: ['setup'],
       testMatch: /m004-guylpp\.spec\.ts/,
+    },
+
+    // M005-oaptsz/S01/T05: dedicated project that ONLY runs the SW-bypass
+    // slice contract gate. The SW only registers under the production build
+    // (vite-plugin-pwa devOptions.enabled is false), so this project points
+    // at the `bun run preview` server on :4173 instead of the dev server on
+    // :5173. No setup/storageState dependency — the spec hits an unauthed
+    // public endpoint (/api/v1/utils/health-check/) so login is unnecessary.
+    //
+    // Run with:  cd frontend && bunx playwright test --project=m005-oaptsz-sw
+    {
+      name: 'm005-oaptsz-sw',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:4173',
+        // Storage isolation: a fresh context per test so SW registration
+        // state is not carried over between specs.
+        storageState: { cookies: [], origins: [] },
+      },
+      testMatch: /m005-oaptsz-sw-bypass\.spec\.ts/,
     },
 
     // {
@@ -147,10 +170,26 @@ export default defineConfig({
     // },
   ],
 
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'bun run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-  },
+  /* Run your local dev server(s) before starting the tests. The dev server
+   * (port 5173) backs every project except m005-oaptsz-sw; the production
+   * preview (port 4173) is what registers the real SW for the bypass spec.
+   * Both honor reuseExistingServer so devs running their own dev/preview
+   * stack don't get duplicate processes. */
+  webServer: [
+    {
+      command: 'bun run dev',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+    },
+    // M005-oaptsz/S01/T05: production preview for the SW-bypass spec.
+    // `bun run build` produces `dist/sw.js` from `src/sw.ts`; `vite preview`
+    // serves dist/ (including the SW) on :4173. timeout is bumped because
+    // the build can take >30s on cold caches.
+    {
+      command: 'bun run build && bun run preview --port 4173 --strictPort',
+      url: 'http://localhost:4173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  ],
 });

@@ -115,7 +115,9 @@ function Login() {
                     <FormLabel>Password</FormLabel>
                     <RouterLink
                       to="/recover-password"
-                      className="ml-auto text-sm underline-offset-4 hover:underline"
+                      // M005-oaptsz/S01: 44px touch shell for the inline
+                      // forgot-password link (mobile-audit gate).
+                      className="ml-auto inline-flex min-h-11 items-center text-sm underline-offset-4 hover:underline"
                     >
                       Forgot your password?
                     </RouterLink>
@@ -139,7 +141,12 @@ function Login() {
 
           <div className="text-center text-sm">
             Don't have an account yet?{" "}
-            <RouterLink to="/signup" className="underline underline-offset-4">
+            <RouterLink
+              to="/signup"
+              // M005-oaptsz/S01: 44x44 touch shell for the inline sign-up
+              // link (mobile-audit gate).
+              className="inline-flex min-h-11 min-w-11 items-center justify-center underline underline-offset-4 px-2"
+            >
               Sign up
             </RouterLink>
           </div>

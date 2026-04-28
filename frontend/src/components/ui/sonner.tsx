@@ -32,6 +32,15 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--border-radius": "var(--radius)",
         } as React.CSSProperties
       }
+      // M005-oaptsz/S01: bump the toast close button to 44x44 so the
+      // iOS-install toast (and any other dismissible toast) satisfies
+      // the mobile-audit gate's >=44x44 CSS-px touch-target rule.
+      toastOptions={{
+        classNames: {
+          closeButton:
+            "!h-11 !w-11 !min-h-11 !min-w-11 !left-auto !right-2 !top-2 !rounded-full",
+        },
+      }}
       {...props}
     />
   )

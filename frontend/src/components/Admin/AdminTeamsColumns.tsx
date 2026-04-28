@@ -73,7 +73,10 @@ export const adminTeamsColumns: ColumnDef<AdminTeamRow>[] = [
           href={`/admin/teams/${row.original.id}`}
           data-testid="view-members-link"
           data-team-id={row.original.id}
-          className="text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+          // M005-oaptsz/S01: inline table-row link wrapped in a 44x44
+          // touch shell (inline-flex + min-h-11 + min-w-11) so the audit
+          // gate passes without enlarging the visible link text.
+          className="inline-flex min-h-11 min-w-11 items-center text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded px-2"
         >
           View members
         </a>

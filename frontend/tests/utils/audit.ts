@@ -2,8 +2,7 @@ import { expect, type Page } from "@playwright/test"
 
 const MIN_TOUCH_TARGET_PX = 44
 
-const INTERACTIVE_SELECTOR =
-  "button, a, [role=button], input, select, textarea"
+const INTERACTIVE_SELECTOR = "button, a, [role=button], input, select, textarea"
 
 export async function assertNoHorizontalScroll(page: Page): Promise<void> {
   const overflow = await page.evaluate(() => {
