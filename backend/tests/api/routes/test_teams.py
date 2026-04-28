@@ -12,7 +12,12 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.models import TeamInvite, TeamMember, get_datetime_utc
+from app.models import (
+    Notification,
+    TeamInvite,
+    TeamMember,
+    get_datetime_utc,
+)
 from tests.utils.utils import random_email, random_lower_string
 
 SIGNUP_URL = f"{settings.API_V1_STR}/auth/signup"
@@ -448,3 +453,50 @@ def test_rejected_join_leaves_no_membership(
         .where(TeamMember.team_id == invite.team_id)
     ).first()
     assert membership is None
+
+
+# ---------------------------------------------------------------------------
+# 20. notify() side-effect: accepting an invite inserts a notifications row
+# ---------------------------------------------------------------------------
+
+
+def test_invite_accept_creates_notification(
+    client: TestClient, db: Session
+) -> None:
+    """Joining a team via invite-code fans out a `team_invite_accepted`
+    notification to the accepter — the bell's seed-truth content."""
+    _, cookies_admin = _signup(client)
+    team_id, code = _issue_invite(
+        client, cookies_admin, team_name="NotifySeed"
+    )
+
+    joiner_id, cookies_joiner = _signup(client)
+
+    # Sanity: the accepter has zero notifications before redeeming the code.
+    pre = db.exec(
+        select(Notification).where(
+            Notification.user_id == uuid.UUID(joiner_id)
+        )
+    ).all()
+    assert pre == []
+
+    r = client.post(
+        f"{settings.API_V1_STR}/teams/join/{code}", cookies=cookies_joiner
+    )
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    rows = db.exec(
+        select(Notification)
+        .where(Notification.user_id == uuid.UUID(joiner_id))
+        .where(Notification.kind == "team_invite_accepted")
+    ).all()
+    assert len(rows) == 1, "exactly one team_invite_accepted row expected"
+
+    only = rows[0]
+    assert only.payload.get("team_id") == team_id
+    # The team's display name is rendered from the API and should land in
+    # the payload (used by the bell's panel row text).
+    assert only.payload.get("team_name") == "NotifySeed"
+    assert only.source_team_id == uuid.UUID(team_id)
+    assert only.read_at is None

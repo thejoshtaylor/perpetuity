@@ -26,10 +26,15 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-from sqlmodel import Session, delete
+from sqlmodel import Session, delete, select
 
 from app.core.config import settings
-from app.models import GitHubAppInstallation, Project, ProjectPushRule
+from app.models import (
+    GitHubAppInstallation,
+    Notification,
+    Project,
+    ProjectPushRule,
+)
 from tests.utils.utils import random_email, random_lower_string
 
 API = settings.API_V1_STR
@@ -48,13 +53,17 @@ def _clean_projects_state(db: Session):
 
     We deliberately do NOT delete users, teams, or memberships — those leak
     across modules by design via the session-scoped `db` fixture. Cleanup
-    order matches the FK chain: push_rules → projects → installations.
+    order matches the FK chain: notifications (FK to projects via
+    source_project_id, ON DELETE SET NULL — but cheap to clean for test
+    determinism) → push_rules → projects → installations.
     """
+    db.execute(delete(Notification))
     db.execute(delete(ProjectPushRule))
     db.execute(delete(Project))
     db.execute(delete(GitHubAppInstallation))
     db.commit()
     yield
+    db.execute(delete(Notification))
     db.execute(delete(ProjectPushRule))
     db.execute(delete(Project))
     db.execute(delete(GitHubAppInstallation))
@@ -1007,3 +1016,64 @@ def test_put_push_rule_orch_unreachable_does_not_fail_put(
     captured = "\n".join(rec.getMessage() for rec in caplog.records)
     assert "push_hook_orch_call_unreachable" in captured
     assert "install-push-hook" in captured
+
+
+# ---------------------------------------------------------------------------
+# notify() side-effect: project_created fans out to every team admin
+# ---------------------------------------------------------------------------
+
+
+def test_project_create_notifies_admins(
+    client: TestClient, db: Session
+) -> None:
+    """Creating a project must INSERT a `project_created` notification for
+    every admin on the team and zero rows for any non-admin member."""
+    # Admin A creates the team. Admin A is automatically the team's first
+    # admin. We then promote a second user (B) to admin and join a third
+    # user (C) as a plain member.
+    admin_a_id, cookies_a = _signup(client)
+    team_id = _create_team(client, cookies_a, "ProjectNotify")
+
+    # Promote B to admin via a second invite + role PATCH.
+    code1 = _issue_invite(client, cookies_a, team_id)
+    admin_b_id, cookies_b = _signup(client)
+    _join_team(client, cookies_b, code1)
+
+    promote = client.patch(
+        f"{API}/teams/{team_id}/members/{admin_b_id}/role",
+        json={"role": "admin"},
+        cookies=cookies_a,
+    )
+    assert promote.status_code == 200, promote.text
+
+    # Add C as plain member.
+    code2 = _issue_invite(client, cookies_a, team_id)
+    member_c_id, cookies_c = _signup(client)
+    _join_team(client, cookies_c, code2)
+
+    _seed_installation(db, team_id=team_id, installation_id=4040)
+    body = _create_project(
+        client, cookies_a, team_id=team_id, installation_id=4040
+    )
+    project_id = body["id"]
+
+    db.expire_all()
+    rows = db.exec(
+        select(Notification).where(Notification.kind == "project_created")
+    ).all()
+
+    notified_user_ids = {row.user_id for row in rows}
+    assert notified_user_ids == {
+        uuid.UUID(admin_a_id),
+        uuid.UUID(admin_b_id),
+    }, "exactly the two admins must receive a project_created row"
+    assert uuid.UUID(member_c_id) not in notified_user_ids
+
+    # Payload + source columns are present and well-formed.
+    one = next(iter(rows))
+    assert one.payload.get("project_id") == project_id
+    assert one.payload.get("project_name") == "widgets"
+    assert one.payload.get("team_id") == team_id
+    assert one.payload.get("repo") == "acme/widgets"
+    assert one.source_team_id == uuid.UUID(team_id)
+    assert one.source_project_id == uuid.UUID(project_id)

@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class AdminService {
     /**
@@ -635,6 +635,33 @@ export class NotificationsService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/notifications/read_all'
+        });
+    }
+    
+    /**
+     * Trigger Test Notification
+     * Insert a `kind=system` notification — gated to system_admin.
+     *
+     * Useful as a seed-truth path so an operator can prove the bell renders
+     * a real row even when no invite/project flow has fired yet. ``user_id``
+     * in the body resolves to ``actor.id`` when omitted. If the recipient has
+     * suppressed the ``system`` channel, ``notify()`` returns None and we
+     * surface 500 ``system_channel_suppressed`` so the operator can tell the
+     * difference between a wiring bug and an opted-out user.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns NotificationPublic Successful Response
+     * @throws ApiError
+     */
+    public static triggerTestNotification(data: NotificationsTriggerTestNotificationData): CancelablePromise<NotificationsTriggerTestNotificationResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/notifications/test',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
     

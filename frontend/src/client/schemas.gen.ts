@@ -498,6 +498,35 @@ export const NotificationReadAllResponseSchema = {
     title: 'NotificationReadAllResponse'
 } as const;
 
+export const NotificationTestTriggerSchema = {
+    properties: {
+        user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Id'
+        },
+        message: {
+            type: 'string',
+            title: 'Message',
+            default: 'System test notification'
+        }
+    },
+    type: 'object',
+    title: 'NotificationTestTrigger',
+    description: `POST /api/v1/notifications/test body — system-admin seed trigger.
+
+Inserts a \`kind=system\` notification row for the recipient (defaults to
+the calling admin when \`\`user_id\`\` is omitted). Used to prove the bell
+wiring without depending on a real invite/project flow.`
+} as const;
+
 export const NotificationUnreadCountSchema = {
     properties: {
         count: {

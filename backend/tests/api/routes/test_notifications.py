@@ -442,3 +442,41 @@ def test_notify_preference_with_workflow_id_is_ignored_for_team_default(
         payload={"k": "v"},
     )
     assert row is not None  # team-default resolved to True from DEFAULTS
+
+
+# ---------------------------------------------------------------------------
+# POST /notifications/test — system-admin seed trigger
+# ---------------------------------------------------------------------------
+
+
+def test_notifications_test_endpoint_creates_system_kind(
+    client: TestClient, db: Session, superuser_cookies: httpx.Cookies
+):
+    """Non-superuser → 403; superuser → inserts a kind=system row that the
+    bell can render via the standard list endpoint."""
+    # Non-superuser: signup gets a UserRole.user account, which the
+    # superuser dependency must reject.
+    _, jar_user = _signup(client)
+    r_user = client.post(
+        f"{NOTIF_URL}/test",
+        json={"message": "should not work"},
+        cookies=jar_user,
+    )
+    assert r_user.status_code == 403, r_user.text
+
+    # Superuser: must succeed and the row must be visible in their list.
+    r_admin = client.post(
+        f"{NOTIF_URL}/test",
+        json={"message": "hello from admin"},
+        cookies=superuser_cookies,
+    )
+    assert r_admin.status_code == 200, r_admin.text
+    body = r_admin.json()
+    assert body["kind"] == "system"
+    assert body["payload"]["message"] == "hello from admin"
+
+    # Visible via GET /notifications for the same admin.
+    r_list = client.get(NOTIF_URL, cookies=superuser_cookies)
+    assert r_list.status_code == 200
+    kinds = {row["kind"] for row in r_list.json()["data"]}
+    assert "system" in kinds

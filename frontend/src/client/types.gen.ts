@@ -121,6 +121,18 @@ export type NotificationsPublic = {
     count: number;
 };
 
+/**
+ * POST /api/v1/notifications/test body — system-admin seed trigger.
+ *
+ * Inserts a `kind=system` notification row for the recipient (defaults to
+ * the calling admin when ``user_id`` is omitted). Used to prove the bell
+ * wiring without depending on a real invite/project flow.
+ */
+export type NotificationTestTrigger = {
+    user_id?: (string | null);
+    message?: string;
+};
+
 export type NotificationUnreadCount = {
     count: number;
 };
@@ -476,6 +488,12 @@ export type NotificationsMarkReadData = {
 export type NotificationsMarkReadResponse = (NotificationPublic);
 
 export type NotificationsMarkAllReadResponse = (NotificationReadAllResponse);
+
+export type NotificationsTriggerTestNotificationData = {
+    requestBody: NotificationTestTrigger;
+};
+
+export type NotificationsTriggerTestNotificationResponse = (NotificationPublic);
 
 export type NotificationsListPreferencesResponse = (Array<NotificationPreferencePublic>);
 

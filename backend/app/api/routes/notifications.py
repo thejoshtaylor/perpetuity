@@ -27,11 +27,11 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import col, select
 
-from app.api.deps import CurrentUser, SessionDep
-from app.core.notify import DEFAULTS
+from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
+from app.core.notify import DEFAULTS, notify
 from app.models import (
     Notification,
     NotificationKind,
@@ -41,7 +41,9 @@ from app.models import (
     NotificationPublic,
     NotificationReadAllResponse,
     NotificationsPublic,
+    NotificationTestTrigger,
     NotificationUnreadCount,
+    User,
 )
 
 logger = logging.getLogger(__name__)
@@ -153,6 +155,47 @@ def mark_all_read(
         len(unread),
     )
     return NotificationReadAllResponse(affected=len(unread))
+
+
+# ---------------------------------------------------------------------------
+# System-admin seed trigger — proves the bell wiring without a real event
+# ---------------------------------------------------------------------------
+
+
+@router.post("/test", response_model=NotificationPublic)
+def trigger_test_notification(
+    body: NotificationTestTrigger,
+    session: SessionDep,
+    actor: User = Depends(get_current_active_superuser),
+) -> NotificationPublic:
+    """Insert a `kind=system` notification — gated to system_admin.
+
+    Useful as a seed-truth path so an operator can prove the bell renders
+    a real row even when no invite/project flow has fired yet. ``user_id``
+    in the body resolves to ``actor.id`` when omitted. If the recipient has
+    suppressed the ``system`` channel, ``notify()`` returns None and we
+    surface 500 ``system_channel_suppressed`` so the operator can tell the
+    difference between a wiring bug and an opted-out user.
+    """
+    target_user_id = body.user_id or actor.id
+    logger.info(
+        "notifications.test_triggered actor_id=%s target_user_id=%s",
+        actor.id,
+        target_user_id,
+    )
+    row = notify(
+        session,
+        user_id=target_user_id,
+        kind=NotificationKind.system,
+        payload={"message": body.message},
+    )
+    if row is None:
+        # Either the system channel is opted out or the insert failed.
+        # The notify() helper has already logged the actual cause.
+        raise HTTPException(
+            status_code=500, detail="system_channel_suppressed"
+        )
+    return NotificationPublic.model_validate(row, from_attributes=True)
 
 
 # ---------------------------------------------------------------------------

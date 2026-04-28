@@ -45,8 +45,10 @@ from app.api.team_access import (
     assert_caller_is_team_member,
 )
 from app.core.config import settings
+from app.core.notify import notify
 from app.models import (
     GitHubAppInstallation,
+    NotificationKind,
     Project,
     ProjectCreate,
     ProjectPublic,
@@ -299,7 +301,47 @@ def create_team_project(
         current_user.id,
         project.github_repo_full_name,
     )
-    return _project_to_public(project)
+
+    # Snapshot the response payload BEFORE the notify side-effect. notify()
+    # commits per recipient, which expires the `project` ORM instance on
+    # this session — a later attribute read would issue a stale-row reload.
+    response = _project_to_public(project)
+
+    # Fan out notifications to every team admin (the project's recipient
+    # cohort for the team-default `project_created` channel). Wrapped in
+    # try/except so the project create never fails if a notify side-effect
+    # somehow re-raises — notify() itself already swallows DB errors, but
+    # we belt-and-suspenders here to keep the route's contract intact.
+    try:
+        recipients = list(
+            session.exec(
+                select(TeamMember)
+                .where(TeamMember.team_id == response.team_id)
+                .where(col(TeamMember.role).in_([TeamRole.admin]))
+            )
+        )
+        for recipient in recipients:
+            notify(
+                session,
+                user_id=recipient.user_id,
+                kind=NotificationKind.project_created,
+                payload={
+                    "project_id": str(response.id),
+                    "project_name": response.name,
+                    "team_id": str(response.team_id),
+                    "repo": response.github_repo_full_name,
+                },
+                source_team_id=response.team_id,
+                source_project_id=response.id,
+            )
+    except Exception:  # noqa: BLE001 — notification side-effect never breaks the route
+        logger.warning(
+            "project_create_notify_failed project_id=%s team_id=%s",
+            response.id,
+            response.team_id,
+        )
+
+    return response
 
 
 # ---------------------------------------------------------------------------

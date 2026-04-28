@@ -842,3 +842,15 @@ class NotificationUnreadCount(SQLModel):
 
 class NotificationReadAllResponse(SQLModel):
     affected: int
+
+
+class NotificationTestTrigger(SQLModel):
+    """POST /api/v1/notifications/test body — system-admin seed trigger.
+
+    Inserts a `kind=system` notification row for the recipient (defaults to
+    the calling admin when ``user_id`` is omitted). Used to prove the bell
+    wiring without depending on a real invite/project flow.
+    """
+
+    user_id: uuid.UUID | None = None
+    message: str = "System test notification"

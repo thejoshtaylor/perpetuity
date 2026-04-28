@@ -17,10 +17,12 @@ from app.api.team_access import (
     assert_caller_is_team_member as _assert_caller_is_team_member,
 )
 from app.core.config import settings
+from app.core.notify import notify
 from app.crud import InviteRejectReason
 from app.models import (
     InviteIssued,
     MemberRoleUpdate,
+    NotificationKind,
     Team,
     TeamCreate,
     TeamMember,
@@ -247,7 +249,31 @@ def join_team(
         current_user.id,
         code_hash,
     )
-    return TeamWithRole(**team.model_dump(), role=membership.role)
+
+    # Snapshot the response payload BEFORE the notify side-effect. notify()
+    # calls session.commit() which expires every ORM-tracked object on this
+    # session, so a later `team.model_dump()` would return an empty dict.
+    response = TeamWithRole(**team.model_dump(), role=membership.role)
+
+    # Notification side-effect: fire-and-forget into notify(); the helper
+    # never re-raises, but we still belt-and-suspenders the catch so a bug
+    # there cannot fail invite acceptance.
+    try:
+        notify(
+            session,
+            user_id=current_user.id,
+            kind=NotificationKind.team_invite_accepted,
+            payload={"team_id": str(team.id), "team_name": team.name},
+            source_team_id=team.id,
+        )
+    except Exception:  # noqa: BLE001 — notification side-effect never breaks the route
+        logger.warning(
+            "invite_accept_notify_failed team_id=%s user_id=%s",
+            team.id,
+            current_user.id,
+        )
+
+    return response
 
 
 @router.patch(
