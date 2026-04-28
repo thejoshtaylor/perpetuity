@@ -686,3 +686,149 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# In-app notification substrate (M005/S02). The seven kinds drive both the
+# storage CHECK constraints (see migration s07_notifications) and the
+# preference-matching key on `notification_preferences.event_type`. Kept as a
+# str-Enum so values land as plain strings in JSON / DB and route handlers
+# can pass them through `app.core.notify(user_id, kind=...)` without manual
+# `.value` conversion. If you add a kind here, add it to the migration's
+# CHECK list and to any UI tab on the settings page.
+class NotificationKind(str, enum.Enum):
+    workflow_run_started = "workflow_run_started"
+    workflow_run_succeeded = "workflow_run_succeeded"
+    workflow_run_failed = "workflow_run_failed"
+    workflow_step_completed = "workflow_step_completed"
+    team_invite_accepted = "team_invite_accepted"
+    project_created = "project_created"
+    system = "system"
+
+
+class Notification(SQLModel, table=True):
+    __tablename__ = "notifications"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('workflow_run_started', 'workflow_run_succeeded', "
+            "'workflow_run_failed', 'workflow_step_completed', "
+            "'team_invite_accepted', 'project_created', 'system')",
+            name="ck_notifications_kind",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+    )
+    kind: str = Field(max_length=64, nullable=False)
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="'{}'::jsonb"),
+    )
+    read_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    source_team_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="team.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    source_project_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="projects.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    # NOTE: source_workflow_run_id has NO FK — the workflow_run table does
+    # not exist yet. The FK-add is deferred to whichever future slice ships
+    # the workflow engine.
+    source_workflow_run_id: uuid.UUID | None = Field(
+        default=None, nullable=True
+    )
+
+
+class NotificationPublic(SQLModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    kind: str
+    payload: dict[str, Any]
+    read_at: datetime | None = None
+    created_at: datetime | None = None
+    source_team_id: uuid.UUID | None = None
+    source_project_id: uuid.UUID | None = None
+    source_workflow_run_id: uuid.UUID | None = None
+
+
+class NotificationsPublic(SQLModel):
+    data: list[NotificationPublic]
+    count: int
+
+
+class NotificationPreference(SQLModel, table=True):
+    __tablename__ = "notification_preferences"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('workflow_run_started', "
+            "'workflow_run_succeeded', 'workflow_run_failed', "
+            "'workflow_step_completed', 'team_invite_accepted', "
+            "'project_created', 'system')",
+            name="ck_notification_preferences_event_type",
+        ),
+    )
+
+    # Synthetic ORM PK. Business uniqueness is the COALESCE UNIQUE INDEX in
+    # migration s07 on (user_id, COALESCE(workflow_id, zero-uuid),
+    # event_type) — Postgres PRIMARY KEY can't wrap a COALESCE expression,
+    # so we keep an `id` column for ORM identity and rely on the index for
+    # the team-default-vs-override collision contract. Route upserts SELECT
+    # by (user_id, workflow_id, event_type) and UPDATE-or-INSERT.
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id",
+        nullable=False,
+        ondelete="CASCADE",
+    )
+    workflow_id: uuid.UUID | None = Field(default=None, nullable=True)
+    event_type: str = Field(max_length=64, nullable=False)
+    in_app: bool = Field(default=True, nullable=False)
+    push: bool = Field(default=False, nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class NotificationPreferencePublic(SQLModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    workflow_id: uuid.UUID | None = None
+    event_type: str
+    in_app: bool
+    push: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class NotificationPreferencePut(SQLModel):
+    """PUT body for /api/v1/notifications/preferences.
+
+    Identifies the (workflow_id, event_type) row to upsert for the calling
+    user and supplies the desired channel toggles. ``workflow_id=None`` is
+    the team-default override; a UUID targets a specific workflow.
+    """
+
+    workflow_id: uuid.UUID | None = None
+    event_type: str = Field(min_length=1, max_length=64)
+    in_app: bool = True
+    push: bool = False
