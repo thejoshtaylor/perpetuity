@@ -7,6 +7,7 @@ from app.api.routes import (
     github_webhooks,
     items,
     login,
+    notifications,
     private,
     projects,
     sessions,
@@ -30,6 +31,7 @@ api_router.include_router(items.router)
 api_router.include_router(ws.router)
 api_router.include_router(sessions.router)
 api_router.include_router(projects.router)
+api_router.include_router(notifications.router)
 
 
 if settings.ENVIRONMENT == "local":

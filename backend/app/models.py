@@ -757,7 +757,9 @@ class Notification(SQLModel, table=True):
 class NotificationPublic(SQLModel):
     id: uuid.UUID
     user_id: uuid.UUID
-    kind: str
+    # Typed as the enum so OpenAPI emits the seven literal values — the
+    # frontend client picks them up as a TS string-literal union.
+    kind: NotificationKind
     payload: dict[str, Any]
     read_at: datetime | None = None
     created_at: datetime | None = None
@@ -813,7 +815,8 @@ class NotificationPreferencePublic(SQLModel):
     id: uuid.UUID
     user_id: uuid.UUID
     workflow_id: uuid.UUID | None = None
-    event_type: str
+    # Typed as the enum so OpenAPI emits the seven literal values.
+    event_type: NotificationKind
     in_app: bool
     push: bool
     created_at: datetime | None = None
@@ -821,14 +824,21 @@ class NotificationPreferencePublic(SQLModel):
 
 
 class NotificationPreferencePut(SQLModel):
-    """PUT body for /api/v1/notifications/preferences.
+    """PUT body for /api/v1/notifications/preferences/{event_type}.
 
-    Identifies the (workflow_id, event_type) row to upsert for the calling
-    user and supplies the desired channel toggles. ``workflow_id=None`` is
-    the team-default override; a UUID targets a specific workflow.
+    The ``event_type`` is taken from the URL path; the body only carries
+    the channel toggles. The route always upserts the team-default row
+    (workflow_id IS NULL) — per-workflow overrides ship in a future slice
+    when the workflow detail page lands.
     """
 
-    workflow_id: uuid.UUID | None = None
-    event_type: str = Field(min_length=1, max_length=64)
     in_app: bool = True
     push: bool = False
+
+
+class NotificationUnreadCount(SQLModel):
+    count: int
+
+
+class NotificationReadAllResponse(SQLModel):
+    affected: int

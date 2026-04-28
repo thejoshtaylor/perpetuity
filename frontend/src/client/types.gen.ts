@@ -72,6 +72,59 @@ export type NewPassword = {
     new_password: string;
 };
 
+export type NotificationKind = 'workflow_run_started' | 'workflow_run_succeeded' | 'workflow_run_failed' | 'workflow_step_completed' | 'team_invite_accepted' | 'project_created' | 'system';
+
+export type NotificationPreferencePublic = {
+    id: string;
+    user_id: string;
+    workflow_id?: (string | null);
+    event_type: NotificationKind;
+    in_app: boolean;
+    push: boolean;
+    created_at?: (string | null);
+    updated_at?: (string | null);
+};
+
+/**
+ * PUT body for /api/v1/notifications/preferences/{event_type}.
+ *
+ * The ``event_type`` is taken from the URL path; the body only carries
+ * the channel toggles. The route always upserts the team-default row
+ * (workflow_id IS NULL) — per-workflow overrides ship in a future slice
+ * when the workflow detail page lands.
+ */
+export type NotificationPreferencePut = {
+    in_app?: boolean;
+    push?: boolean;
+};
+
+export type NotificationPublic = {
+    id: string;
+    user_id: string;
+    kind: NotificationKind;
+    payload: {
+        [key: string]: unknown;
+    };
+    read_at?: (string | null);
+    created_at?: (string | null);
+    source_team_id?: (string | null);
+    source_project_id?: (string | null);
+    source_workflow_run_id?: (string | null);
+};
+
+export type NotificationReadAllResponse = {
+    affected: number;
+};
+
+export type NotificationsPublic = {
+    data: Array<NotificationPublic>;
+    count: number;
+};
+
+export type NotificationUnreadCount = {
+    count: number;
+};
+
 export type PrivateUserCreate = {
     email: string;
     password: string;
@@ -406,6 +459,32 @@ export type LoginRecoverPasswordHtmlContentData = {
 };
 
 export type LoginRecoverPasswordHtmlContentResponse = (string);
+
+export type NotificationsListNotificationsData = {
+    limit?: number;
+    unreadOnly?: boolean;
+};
+
+export type NotificationsListNotificationsResponse = (NotificationsPublic);
+
+export type NotificationsUnreadCountResponse = (NotificationUnreadCount);
+
+export type NotificationsMarkReadData = {
+    notificationId: string;
+};
+
+export type NotificationsMarkReadResponse = (NotificationPublic);
+
+export type NotificationsMarkAllReadResponse = (NotificationReadAllResponse);
+
+export type NotificationsListPreferencesResponse = (Array<NotificationPreferencePublic>);
+
+export type NotificationsUpsertPreferenceData = {
+    eventType: string;
+    requestBody: NotificationPreferencePut;
+};
+
+export type NotificationsUpsertPreferenceResponse = (NotificationPreferencePublic);
 
 export type PrivateCreateUserData = {
     requestBody: PrivateUserCreate;

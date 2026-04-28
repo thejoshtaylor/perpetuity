@@ -306,6 +306,229 @@ export const NewPasswordSchema = {
     title: 'NewPassword'
 } as const;
 
+export const NotificationKindSchema = {
+    type: 'string',
+    enum: ['workflow_run_started', 'workflow_run_succeeded', 'workflow_run_failed', 'workflow_step_completed', 'team_invite_accepted', 'project_created', 'system'],
+    title: 'NotificationKind'
+} as const;
+
+export const NotificationPreferencePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        workflow_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Workflow Id'
+        },
+        event_type: {
+            '$ref': '#/components/schemas/NotificationKind'
+        },
+        in_app: {
+            type: 'boolean',
+            title: 'In App'
+        },
+        push: {
+            type: 'boolean',
+            title: 'Push'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'user_id', 'event_type', 'in_app', 'push'],
+    title: 'NotificationPreferencePublic'
+} as const;
+
+export const NotificationPreferencePutSchema = {
+    properties: {
+        in_app: {
+            type: 'boolean',
+            title: 'In App',
+            default: true
+        },
+        push: {
+            type: 'boolean',
+            title: 'Push',
+            default: false
+        }
+    },
+    type: 'object',
+    title: 'NotificationPreferencePut',
+    description: `PUT body for /api/v1/notifications/preferences/{event_type}.
+
+The \`\`event_type\`\` is taken from the URL path; the body only carries
+the channel toggles. The route always upserts the team-default row
+(workflow_id IS NULL) — per-workflow overrides ship in a future slice
+when the workflow detail page lands.`
+} as const;
+
+export const NotificationPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        kind: {
+            '$ref': '#/components/schemas/NotificationKind'
+        },
+        payload: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Payload'
+        },
+        read_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Read At'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        source_team_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Team Id'
+        },
+        source_project_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Project Id'
+        },
+        source_workflow_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Workflow Run Id'
+        }
+    },
+    type: 'object',
+    required: ['id', 'user_id', 'kind', 'payload'],
+    title: 'NotificationPublic'
+} as const;
+
+export const NotificationReadAllResponseSchema = {
+    properties: {
+        affected: {
+            type: 'integer',
+            title: 'Affected'
+        }
+    },
+    type: 'object',
+    required: ['affected'],
+    title: 'NotificationReadAllResponse'
+} as const;
+
+export const NotificationUnreadCountSchema = {
+    properties: {
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['count'],
+    title: 'NotificationUnreadCount'
+} as const;
+
+export const NotificationsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/NotificationPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'NotificationsPublic'
+} as const;
+
 export const PrivateUserCreateSchema = {
     properties: {
         email: {
