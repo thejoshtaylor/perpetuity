@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateVapidKeysResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, PushGetVapidPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, PushListSubscriptionsResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class AdminService {
     /**
@@ -165,6 +165,39 @@ export class AdminService {
             errors: {
                 422: 'Validation Error'
             }
+        });
+    }
+    
+    /**
+     * Generate Vapid Keys
+     * Atomically generate a fresh VAPID keypair and persist both halves.
+     *
+     * Writes the public key to ``system_settings.value`` (JSONB, non-sensitive
+     * — every browser fetches it from /api/v1/push/vapid_public_key) and the
+     * private key encrypted into ``system_settings.value_encrypted`` (sensitive,
+     * Fernet-encrypted at rest). Returns BOTH plaintext values exactly once
+     * (the only moment the private key crosses the backend → UI boundary;
+     * subsequent admin GETs return the redacted shape).
+     *
+     * Re-calling this endpoint is intentionally destructive (D025): every
+     * existing push subscription becomes unverifiable until the affected
+     * devices re-subscribe. Operators should rotate carefully — the response
+     * body's ``overwrote_existing`` flag is true on a re-generate so the UI
+     * can require a confirmation step.
+     *
+     * Logs ``admin.vapid_keys.generated actor_id=<uuid> overwrote=<bool>``
+     * (carries the public-key prefix only — never the raw key).
+     *
+     * NOTE: This route MUST be declared before
+     * ``/settings/{key}/generate`` — FastAPI matches in declaration order and
+     * the catch-all otherwise swallows ``vapid_keys`` as a literal key.
+     * @returns VapidKeysGenerateResponse Successful Response
+     * @throws ApiError
+     */
+    public static generateVapidKeys(): CancelablePromise<AdminGenerateVapidKeysResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/admin/settings/vapid_keys/generate'
         });
     }
     
@@ -968,6 +1001,97 @@ export class ProjectsService {
             errors: {
                 422: 'Validation Error'
             }
+        });
+    }
+}
+
+export class PushService {
+    /**
+     * Get Vapid Public Key
+     * Return the configured VAPID public key.
+     *
+     * 503 when the operator has not yet generated a keypair — the frontend
+     * treats this as "push channel not configured" and surfaces the operator
+     * runbook to the user, rather than triggering a permission prompt that
+     * would dead-end at subscribe time.
+     *
+     * Intentionally unauthenticated: every browser fetches this before any
+     * user is in scope, and the value is part of the W3C Push API contract
+     * (it identifies *us* to the upstream push service, not the user).
+     * @returns VapidPublicKeyResponse Successful Response
+     * @throws ApiError
+     */
+    public static getVapidPublicKey(): CancelablePromise<PushGetVapidPublicKeyResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/push/vapid_public_key'
+        });
+    }
+    
+    /**
+     * Subscribe
+     * Register or upsert the caller's Web Push subscription for this device.
+     *
+     * Idempotent on (user_id, endpoint): a re-subscribe from the same browser
+     * refreshes the keys + last_seen_at and resets ``consecutive_failures``.
+     * Two distinct endpoints for the same user produce two rows (phone +
+     * laptop). The User-Agent header is captured into the row (truncated to
+     * 500 chars) but never appears in logs in full.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns PushSubscriptionPublic Successful Response
+     * @throws ApiError
+     */
+    public static subscribe(data: PushSubscribeData): CancelablePromise<PushSubscribeResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/push/subscribe',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Unsubscribe
+     * Drop the caller's subscription for the given endpoint.
+     *
+     * Idempotent: deleting an unknown endpoint returns 204 with
+     * ``deleted=false`` in the audit log. This keeps the client side simple —
+     * it can blindly DELETE on permission-revoke without worrying about
+     * whether the row existed.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns void Successful Response
+     * @throws ApiError
+     */
+    public static unsubscribe(data: PushUnsubscribeData): CancelablePromise<PushUnsubscribeResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/push/subscribe',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Subscriptions
+     * List the caller's push subscriptions (hash-only projection).
+     *
+     * Powers the "this device + N others subscribed" hint in the Notifications
+     * settings tab. Never returns the raw endpoint URL.
+     * @returns PushSubscriptionsList Successful Response
+     * @throws ApiError
+     */
+    public static listSubscriptions(): CancelablePromise<PushListSubscriptionsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/push/subscriptions'
         });
     }
 }

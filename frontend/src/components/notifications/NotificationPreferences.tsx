@@ -5,6 +5,8 @@ import {
   type NotificationKind,
   type NotificationPreferencePublic,
   NotificationsService,
+  PushService,
+  type PushSubscriptionsList,
 } from "@/client"
 import {
   Card,
@@ -37,6 +39,7 @@ const KIND_LABELS: Record<NotificationKind, string> = {
 }
 
 const PREFS_QUERY_KEY = ["notifications", "preferences"] as const
+const PUSH_SUBS_QUERY_KEY = ["push", "subscriptions"] as const
 
 export function NotificationPreferences() {
   const queryClient = useQueryClient()
@@ -45,6 +48,18 @@ export function NotificationPreferences() {
     queryKey: PREFS_QUERY_KEY,
     queryFn: () => NotificationsService.listPreferences(),
   })
+
+  // The dispatcher gate (T02) only fires push when at least one
+  // PushSubscription row exists for the user. T04 wires the actual
+  // SW-subscribe flow; until then a user toggling push=true with no
+  // subscription registered sees no push notifications (silent — by design).
+  // We surface a soft hint when the row count is 0 so operators don't
+  // mistake the silence for a wiring failure.
+  const subsQuery = useQuery<PushSubscriptionsList>({
+    queryKey: PUSH_SUBS_QUERY_KEY,
+    queryFn: () => PushService.listSubscriptions(),
+  })
+  const hasSubscription = (subsQuery.data?.count ?? 0) > 0
 
   // PUT /preferences/{event_type}. On success we re-anchor the cache with
   // the server's updated row immediately (MEM305 pattern), then invalidate
@@ -93,61 +108,76 @@ export function NotificationPreferences() {
             Failed to load preferences
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-1/2">Event</TableHead>
-                <TableHead>In-app</TableHead>
-                <TableHead>Push</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(prefsQuery.data ?? []).map((row) => {
-                const kind = row.event_type as NotificationKind
-                const label = KIND_LABELS[kind] ?? kind
-                const switchId = `notification-pref-${kind}`
-                return (
-                  <TableRow
-                    key={kind}
-                    data-testid="notification-preference-row"
-                    data-event-type={kind}
-                  >
-                    <TableCell className="font-medium">
-                      <label htmlFor={switchId}>{label}</label>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        id={switchId}
-                        data-testid={`notification-pref-in-app-${kind}`}
-                        checked={row.in_app}
-                        disabled={updatePref.isPending}
-                        onCheckedChange={(checked) => {
-                          updatePref.mutate({
-                            eventType: kind,
-                            in_app: checked,
-                            push: row.push,
-                          })
-                        }}
-                        aria-label={`In-app for ${label}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-1/2">Event</TableHead>
+                  <TableHead>In-app</TableHead>
+                  <TableHead>Push</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(prefsQuery.data ?? []).map((row) => {
+                  const kind = row.event_type as NotificationKind
+                  const label = KIND_LABELS[kind] ?? kind
+                  const switchId = `notification-pref-${kind}`
+                  const pushSwitchId = `notification-pref-push-${kind}`
+                  return (
+                    <TableRow
+                      key={kind}
+                      data-testid="notification-preference-row"
+                      data-event-type={kind}
+                    >
+                      <TableCell className="font-medium">
+                        <label htmlFor={switchId}>{label}</label>
+                      </TableCell>
+                      <TableCell>
                         <Switch
-                          disabled
-                          checked={false}
-                          aria-label={`Push for ${label}, available in S03`}
+                          id={switchId}
+                          data-testid={`notification-pref-in-app-${kind}`}
+                          checked={row.in_app}
+                          disabled={updatePref.isPending}
+                          onCheckedChange={(checked) => {
+                            updatePref.mutate({
+                              eventType: kind,
+                              in_app: checked,
+                              push: row.push,
+                            })
+                          }}
+                          aria-label={`In-app for ${label}`}
                         />
-                        <span className="text-xs text-muted-foreground">
-                          Available in S03
-                        </span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                      </TableCell>
+                      <TableCell>
+                        <Switch
+                          id={pushSwitchId}
+                          data-testid={`notification-pref-push-${kind}`}
+                          checked={row.push}
+                          disabled={updatePref.isPending}
+                          onCheckedChange={(checked) => {
+                            updatePref.mutate({
+                              eventType: kind,
+                              in_app: row.in_app,
+                              push: checked,
+                            })
+                          }}
+                          aria-label={`Push for ${label}`}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+            {!subsQuery.isLoading && !hasSubscription ? (
+              <p
+                className="mt-3 text-xs text-muted-foreground"
+                data-testid="push-no-subscription-hint"
+              >
+                Allow notifications when prompted to receive push.
+              </p>
+            ) : null}
+          </>
         )}
       </CardContent>
     </Card>

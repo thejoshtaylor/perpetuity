@@ -21,7 +21,7 @@ from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.models import SystemSetting
+from app.models import PushSubscription, SystemSetting
 from tests.utils.utils import random_email, random_lower_string
 
 # Migration tests in this project call alembic ``command.upgrade`` which
@@ -58,9 +58,11 @@ VAPID_PRIVATE_KEY = "vapid_private_key"
 def _clean_system_settings(db: Session):
     """Each test starts with empty system_settings (single-row global state)."""
     db.execute(delete(SystemSetting))
+    db.execute(delete(PushSubscription))
     db.commit()
     yield
     db.execute(delete(SystemSetting))
+    db.execute(delete(PushSubscription))
     db.commit()
 
 
@@ -334,3 +336,355 @@ def test_per_key_generate_refused_for_vapid_private(
     )
     assert r.status_code == 422
     assert r.json()["detail"]["detail"] == "use_atomic_endpoint_for_vapid_keys"
+
+
+# ---------------------------------------------------------------------------
+# T03: POST/DELETE /push/subscribe + GET /push/subscriptions
+# ---------------------------------------------------------------------------
+
+PUSH_SUBSCRIBE_URL = f"{API_V1}/push/subscribe"
+PUSH_SUBSCRIPTIONS_URL = f"{API_V1}/push/subscriptions"
+
+# Realistic Mozilla Push Service endpoint shape — opaque to the server, but
+# we pin it here so the tests assert the same string the dispatcher would
+# see in production.
+_MOZ_ENDPOINT_A = (
+    "https://updates.push.services.mozilla.com/wpush/v2/"
+    "gAAAAABlExampleEndpointAAAAAAAAAAAAA-device-a"
+)
+_MOZ_ENDPOINT_B = (
+    "https://updates.push.services.mozilla.com/wpush/v2/"
+    "gAAAAABlExampleEndpointBBBBBBBBBBBBB-device-b"
+)
+# pywebpush expects p256dh + auth as url-safe-base64; payload contents don't
+# matter for the route layer — pywebpush is exercised in T02's tests.
+_VALID_KEYS = {
+    "p256dh": (
+        "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM"
+    ),
+    "auth": "tBHItJI5svbpez7KI4CCXg",
+}
+
+
+def _endpoint_hash_8(endpoint: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(endpoint.encode("utf-8")).hexdigest()[:8]
+
+
+def _subscribe_body(endpoint: str = _MOZ_ENDPOINT_A) -> dict:
+    return {"endpoint": endpoint, "keys": dict(_VALID_KEYS)}
+
+
+def test_subscribe_creates_row_first_time(
+    client: TestClient, db: Session
+) -> None:
+    """POST → 201, single row in DB, endpoint_hash projected, raw endpoint
+    never returned."""
+    _user_id, cookies = _signup(client)
+
+    r = client.post(
+        PUSH_SUBSCRIBE_URL,
+        cookies=cookies,
+        json=_subscribe_body(),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["endpoint_hash"] == _endpoint_hash_8(_MOZ_ENDPOINT_A)
+    assert "endpoint" not in body  # raw URL never leaks via API surface
+
+    # Single row in DB, linked to the caller, keys persisted as JSONB.
+    db.expire_all()
+    rows = db.exec(select(PushSubscription)).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert str(row.user_id) == _user_id
+    assert row.endpoint == _MOZ_ENDPOINT_A
+    assert row.keys == _VALID_KEYS
+
+
+def test_subscribe_idempotent_upsert(
+    client: TestClient, db: Session, caplog
+) -> None:
+    """Second POST with the same endpoint → 200, single row, last_seen_at
+    advanced, ``existing=true`` log captured. Mirrors the dispatcher's
+    upsert posture in T02."""
+    _user_id, cookies = _signup(client)
+
+    first = client.post(
+        PUSH_SUBSCRIBE_URL, cookies=cookies, json=_subscribe_body()
+    )
+    assert first.status_code == 201, first.text
+
+    db.expire_all()
+    first_rows = db.exec(select(PushSubscription)).all()
+    assert len(first_rows) == 1
+    first_seen = first_rows[0].last_seen_at
+
+    # Re-subscribe from the same browser. Refreshed keys must overwrite.
+    refreshed_keys = dict(_VALID_KEYS)
+    refreshed_keys["auth"] = "RotatedAuthValue1234"
+    body2 = {"endpoint": _MOZ_ENDPOINT_A, "keys": refreshed_keys}
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.push"):
+        second = client.post(PUSH_SUBSCRIBE_URL, cookies=cookies, json=body2)
+    assert second.status_code == 200, second.text
+
+    db.expire_all()
+    rows = db.exec(select(PushSubscription)).all()
+    assert len(rows) == 1, "upsert must not create a second row"
+    assert rows[0].keys["auth"] == "RotatedAuthValue1234"
+    # last_seen_at advanced.
+    assert rows[0].last_seen_at is not None
+    if first_seen is not None:
+        assert rows[0].last_seen_at >= first_seen
+
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "push.subscribe.upsert" in m and "existing=true" in m for m in msgs
+    ), msgs
+
+
+def test_subscribe_two_devices_for_one_user(
+    client: TestClient, db: Session
+) -> None:
+    """Two distinct endpoints for the same user → two rows, same user_id."""
+    user_id, cookies = _signup(client)
+
+    a = client.post(
+        PUSH_SUBSCRIBE_URL,
+        cookies=cookies,
+        json=_subscribe_body(_MOZ_ENDPOINT_A),
+    )
+    b = client.post(
+        PUSH_SUBSCRIBE_URL,
+        cookies=cookies,
+        json=_subscribe_body(_MOZ_ENDPOINT_B),
+    )
+    assert a.status_code == 201, a.text
+    assert b.status_code == 201, b.text
+
+    db.expire_all()
+    rows = db.exec(select(PushSubscription)).all()
+    assert len(rows) == 2
+    assert {str(r.user_id) for r in rows} == {user_id}
+    assert {r.endpoint for r in rows} == {_MOZ_ENDPOINT_A, _MOZ_ENDPOINT_B}
+
+
+def test_unsubscribe_by_endpoint(
+    client: TestClient, db: Session, caplog
+) -> None:
+    """DELETE → row gone, ``deleted=true`` log."""
+    _user_id, cookies = _signup(client)
+
+    r = client.post(
+        PUSH_SUBSCRIBE_URL, cookies=cookies, json=_subscribe_body()
+    )
+    assert r.status_code == 201
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.push"):
+        d = client.request(
+            "DELETE",
+            PUSH_SUBSCRIBE_URL,
+            cookies=cookies,
+            json={"endpoint": _MOZ_ENDPOINT_A},
+        )
+    assert d.status_code == 204, d.text
+
+    db.expire_all()
+    rows = db.exec(select(PushSubscription)).all()
+    assert rows == []
+
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "push.unsubscribe" in m and "deleted=true" in m for m in msgs
+    ), msgs
+
+
+def test_unsubscribe_unknown_endpoint_is_noop(
+    client: TestClient, db: Session, caplog
+) -> None:
+    """DELETE for endpoint that does not belong to the user → 204 with
+    ``deleted=false`` log; row count unchanged."""
+    _user_id, cookies = _signup(client)
+
+    # Seed an unrelated endpoint so we can confirm the row count is stable.
+    r = client.post(
+        PUSH_SUBSCRIBE_URL,
+        cookies=cookies,
+        json=_subscribe_body(_MOZ_ENDPOINT_A),
+    )
+    assert r.status_code == 201
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.push"):
+        d = client.request(
+            "DELETE",
+            PUSH_SUBSCRIBE_URL,
+            cookies=cookies,
+            json={"endpoint": _MOZ_ENDPOINT_B},
+        )
+    assert d.status_code == 204, d.text
+
+    db.expire_all()
+    rows = db.exec(select(PushSubscription)).all()
+    assert len(rows) == 1
+    assert rows[0].endpoint == _MOZ_ENDPOINT_A
+
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(
+        "push.unsubscribe" in m and "deleted=false" in m for m in msgs
+    ), msgs
+
+
+def test_subscribe_requires_auth(client: TestClient) -> None:
+    """No cookie → 401."""
+    client.cookies.clear()
+    r = client.post(PUSH_SUBSCRIBE_URL, json=_subscribe_body())
+    assert r.status_code == 401
+
+
+def test_unsubscribe_requires_auth(client: TestClient) -> None:
+    client.cookies.clear()
+    r = client.request(
+        "DELETE", PUSH_SUBSCRIBE_URL, json={"endpoint": _MOZ_ENDPOINT_A}
+    )
+    assert r.status_code == 401
+
+
+def test_get_subscriptions_requires_auth(client: TestClient) -> None:
+    client.cookies.clear()
+    r = client.get(PUSH_SUBSCRIPTIONS_URL)
+    assert r.status_code == 401
+
+
+def test_subscribe_log_uses_endpoint_hash_not_url(
+    client: TestClient, caplog
+) -> None:
+    """Log redaction: subscribe + upsert + unsubscribe lines must contain
+    ``endpoint_hash=<sha256:8>`` and MUST NOT contain the raw endpoint URL.
+    Mirrors the T02 redaction test for the dispatcher."""
+    _user_id, cookies = _signup(client)
+    expected_hash = _endpoint_hash_8(_MOZ_ENDPOINT_A)
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.push"):
+        # First POST: insert
+        r1 = client.post(
+            PUSH_SUBSCRIBE_URL, cookies=cookies, json=_subscribe_body()
+        )
+        # Second POST: upsert
+        r2 = client.post(
+            PUSH_SUBSCRIBE_URL, cookies=cookies, json=_subscribe_body()
+        )
+        # DELETE: drop
+        r3 = client.request(
+            "DELETE",
+            PUSH_SUBSCRIBE_URL,
+            cookies=cookies,
+            json={"endpoint": _MOZ_ENDPOINT_A},
+        )
+    assert r1.status_code == 201
+    assert r2.status_code == 200
+    assert r3.status_code == 204
+
+    msgs = [rec.getMessage() for rec in caplog.records]
+    # Hash must appear at least once on each log family.
+    assert any(
+        "push.subscribe" in m
+        and "upsert" not in m
+        and f"endpoint_hash={expected_hash}" in m
+        for m in msgs
+    ), msgs
+    assert any(
+        "push.subscribe.upsert" in m
+        and f"endpoint_hash={expected_hash}" in m
+        for m in msgs
+    ), msgs
+    assert any(
+        "push.unsubscribe" in m
+        and f"endpoint_hash={expected_hash}" in m
+        for m in msgs
+    ), msgs
+    # Raw endpoint URL must NEVER appear in any log line.
+    for m in msgs:
+        assert _MOZ_ENDPOINT_A not in m, (
+            f"raw endpoint leaked into log line: {m}"
+        )
+
+
+def test_subscribe_does_not_log_full_user_agent(
+    client: TestClient, caplog, db: Session
+) -> None:
+    """The full UA is captured into the row but never logged in full —
+    only the leading non-whitespace token is emitted."""
+    _user_id, cookies = _signup(client)
+    full_ua = (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X)"
+        " AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148"
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.push"):
+        r = client.post(
+            PUSH_SUBSCRIBE_URL,
+            cookies=cookies,
+            json=_subscribe_body(),
+            headers={"user-agent": full_ua},
+        )
+    assert r.status_code == 201, r.text
+
+    # Row holds the full UA (truncated to 500 chars by the column).
+    db.expire_all()
+    rows = db.exec(select(PushSubscription)).all()
+    assert len(rows) == 1
+    assert rows[0].user_agent == full_ua
+
+    # No log line carries the entire UA — only the leading "Mozilla/5.0" token.
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any("ua=Mozilla/5.0" in m for m in msgs), msgs
+    for m in msgs:
+        assert "iPhone" not in m, f"UA leaked into log: {m}"
+
+
+def test_get_subscriptions_lists_only_callers_rows(
+    client: TestClient,
+) -> None:
+    """Two users, each with a subscription — each only sees their own."""
+    user_a, cookies_a = _signup(client)
+    _user_b, cookies_b = _signup(client)
+
+    ra = client.post(
+        PUSH_SUBSCRIBE_URL,
+        cookies=cookies_a,
+        json=_subscribe_body(_MOZ_ENDPOINT_A),
+    )
+    rb = client.post(
+        PUSH_SUBSCRIBE_URL,
+        cookies=cookies_b,
+        json=_subscribe_body(_MOZ_ENDPOINT_B),
+    )
+    assert ra.status_code == 201
+    assert rb.status_code == 201
+
+    # User A sees only the A endpoint.
+    la = client.get(PUSH_SUBSCRIPTIONS_URL, cookies=cookies_a)
+    assert la.status_code == 200
+    body_a = la.json()
+    assert body_a["count"] == 1
+    assert body_a["data"][0]["endpoint_hash"] == _endpoint_hash_8(
+        _MOZ_ENDPOINT_A
+    )
+    assert "endpoint" not in body_a["data"][0]
+
+    # User B sees only the B endpoint.
+    lb = client.get(PUSH_SUBSCRIPTIONS_URL, cookies=cookies_b)
+    assert lb.status_code == 200
+    body_b = lb.json()
+    assert body_b["count"] == 1
+    assert body_b["data"][0]["endpoint_hash"] == _endpoint_hash_8(
+        _MOZ_ENDPOINT_B
+    )
+
+    # Cross-check: caller A is structurally separated from caller B.
+    assert (
+        body_a["data"][0]["endpoint_hash"]
+        != body_b["data"][0]["endpoint_hash"]
+    )

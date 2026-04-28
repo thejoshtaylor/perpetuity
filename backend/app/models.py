@@ -933,6 +933,17 @@ class PushSubscriptionCreate(SQLModel):
     keys: PushSubscriptionKeys
 
 
+class PushSubscriptionDelete(SQLModel):
+    """DELETE /api/v1/push/subscribe body — endpoint-only.
+
+    The browser's ``PushSubscription.unsubscribe()`` does not return the
+    ``keys`` material, so the unsubscribe path takes only the endpoint URL
+    and uses (user_id, endpoint) as the deletion key.
+    """
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+
+
 class PushSubscriptionPublic(SQLModel):
     """Redaction-safe projection of a PushSubscription row.
 

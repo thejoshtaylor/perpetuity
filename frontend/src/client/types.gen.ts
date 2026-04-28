@@ -200,6 +200,63 @@ export type ProjectUpdate = {
     name: string;
 };
 
+/**
+ * POST /api/v1/push/subscribe body — full T03 wiring lands here.
+ *
+ * Shape matches ``PushSubscription.toJSON()`` from the browser. T01 only
+ * declares the model so the migration test imports are coherent; the
+ * subscribe route ships in T03.
+ */
+export type PushSubscriptionCreate = {
+    endpoint: string;
+    keys: PushSubscriptionKeys;
+};
+
+/**
+ * DELETE /api/v1/push/subscribe body — endpoint-only.
+ *
+ * The browser's ``PushSubscription.unsubscribe()`` does not return the
+ * ``keys`` material, so the unsubscribe path takes only the endpoint URL
+ * and uses (user_id, endpoint) as the deletion key.
+ */
+export type PushSubscriptionDelete = {
+    endpoint: string;
+};
+
+/**
+ * Browser-issued ECDH key material for Web Push message encryption.
+ *
+ * Shape mirrors ``PushSubscription.toJSON().keys`` from the W3C Push API.
+ * Both halves are url-safe-base64 strings; we don't validate base64 at the
+ * API boundary — pywebpush surfaces a structured error at encrypt time if
+ * the bytes are malformed.
+ */
+export type PushSubscriptionKeys = {
+    p256dh: string;
+    auth: string;
+};
+
+/**
+ * Redaction-safe projection of a PushSubscription row.
+ *
+ * NEVER include the raw ``endpoint`` — only ``endpoint_hash`` (the leading
+ * 8 chars of sha256(endpoint)). The hash is enough for the operator UI to
+ * distinguish two devices and for log-cross-correlation, without leaking
+ * the push URL itself (which is treated as a bearer-style secret).
+ */
+export type PushSubscriptionPublic = {
+    id: string;
+    endpoint_hash: string;
+    user_agent?: (string | null);
+    created_at?: (string | null);
+    last_seen_at?: (string | null);
+};
+
+export type PushSubscriptionsList = {
+    data: Array<PushSubscriptionPublic>;
+    count: number;
+};
+
 export type SignupBody = {
     email: string;
     password: string;
@@ -337,6 +394,28 @@ export type ValidationError = {
     };
 };
 
+/**
+ * Response for POST /admin/settings/vapid_keys/generate.
+ *
+ * Returns BOTH the public and private VAPID keys exactly once. Subsequent
+ * admin GETs on either row return the redacted shape (public is plain JSONB
+ * and remains visible; private has ``value=null, has_value=true``).
+ * Re-calling the endpoint is intentionally destructive (D025) — every
+ * existing push subscription becomes unverifiable until devices re-subscribe.
+ */
+export type VapidKeysGenerateResponse = {
+    public_key: string;
+    private_key: string;
+    overwrote_existing: boolean;
+};
+
+/**
+ * Response for GET /api/v1/push/vapid_public_key (no auth).
+ */
+export type VapidPublicKeyResponse = {
+    public_key: string;
+};
+
 export type AdminReadAllTeamsData = {
     limit?: number;
     skip?: number;
@@ -374,6 +453,8 @@ export type AdminPutSystemSettingData = {
 };
 
 export type AdminPutSystemSettingResponse = (SystemSettingPutResponse);
+
+export type AdminGenerateVapidKeysResponse = (VapidKeysGenerateResponse);
 
 export type AdminGenerateSystemSettingData = {
     key: string;
@@ -566,6 +647,22 @@ export type ProjectsOpenProjectData = {
 export type ProjectsOpenProjectResponse = ({
     [key: string]: unknown;
 });
+
+export type PushGetVapidPublicKeyResponse = (VapidPublicKeyResponse);
+
+export type PushSubscribeData = {
+    requestBody: PushSubscriptionCreate;
+};
+
+export type PushSubscribeResponse = (PushSubscriptionPublic);
+
+export type PushUnsubscribeData = {
+    requestBody: PushSubscriptionDelete;
+};
+
+export type PushUnsubscribeResponse = (void);
+
+export type PushListSubscriptionsResponse = (PushSubscriptionsList);
 
 export type SessionsCreateSessionData = {
     requestBody: {

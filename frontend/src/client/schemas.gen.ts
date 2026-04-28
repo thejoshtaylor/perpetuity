@@ -820,6 +820,150 @@ export const ProjectsPublicSchema = {
     title: 'ProjectsPublic'
 } as const;
 
+export const PushSubscriptionCreateSchema = {
+    properties: {
+        endpoint: {
+            type: 'string',
+            maxLength: 2048,
+            minLength: 1,
+            title: 'Endpoint'
+        },
+        keys: {
+            '$ref': '#/components/schemas/PushSubscriptionKeys'
+        }
+    },
+    type: 'object',
+    required: ['endpoint', 'keys'],
+    title: 'PushSubscriptionCreate',
+    description: `POST /api/v1/push/subscribe body — full T03 wiring lands here.
+
+Shape matches \`\`PushSubscription.toJSON()\`\` from the browser. T01 only
+declares the model so the migration test imports are coherent; the
+subscribe route ships in T03.`
+} as const;
+
+export const PushSubscriptionDeleteSchema = {
+    properties: {
+        endpoint: {
+            type: 'string',
+            maxLength: 2048,
+            minLength: 1,
+            title: 'Endpoint'
+        }
+    },
+    type: 'object',
+    required: ['endpoint'],
+    title: 'PushSubscriptionDelete',
+    description: `DELETE /api/v1/push/subscribe body — endpoint-only.
+
+The browser's \`\`PushSubscription.unsubscribe()\`\` does not return the
+\`\`keys\`\` material, so the unsubscribe path takes only the endpoint URL
+and uses (user_id, endpoint) as the deletion key.`
+} as const;
+
+export const PushSubscriptionKeysSchema = {
+    properties: {
+        p256dh: {
+            type: 'string',
+            maxLength: 512,
+            minLength: 1,
+            title: 'P256Dh'
+        },
+        auth: {
+            type: 'string',
+            maxLength: 512,
+            minLength: 1,
+            title: 'Auth'
+        }
+    },
+    type: 'object',
+    required: ['p256dh', 'auth'],
+    title: 'PushSubscriptionKeys',
+    description: `Browser-issued ECDH key material for Web Push message encryption.
+
+Shape mirrors \`\`PushSubscription.toJSON().keys\`\` from the W3C Push API.
+Both halves are url-safe-base64 strings; we don't validate base64 at the
+API boundary — pywebpush surfaces a structured error at encrypt time if
+the bytes are malformed.`
+} as const;
+
+export const PushSubscriptionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        endpoint_hash: {
+            type: 'string',
+            title: 'Endpoint Hash'
+        },
+        user_agent: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Agent'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        last_seen_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Seen At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'endpoint_hash'],
+    title: 'PushSubscriptionPublic',
+    description: `Redaction-safe projection of a PushSubscription row.
+
+NEVER include the raw \`\`endpoint\`\` — only \`\`endpoint_hash\`\` (the leading
+8 chars of sha256(endpoint)). The hash is enough for the operator UI to
+distinguish two devices and for log-cross-correlation, without leaking
+the push URL itself (which is treated as a bearer-style secret).`
+} as const;
+
+export const PushSubscriptionsListSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/PushSubscriptionPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'PushSubscriptionsList'
+} as const;
+
 export const SignupBodySchema = {
     properties: {
         email: {
@@ -1465,4 +1609,44 @@ export const ValidationErrorSchema = {
     type: 'object',
     required: ['loc', 'msg', 'type'],
     title: 'ValidationError'
+} as const;
+
+export const VapidKeysGenerateResponseSchema = {
+    properties: {
+        public_key: {
+            type: 'string',
+            title: 'Public Key'
+        },
+        private_key: {
+            type: 'string',
+            title: 'Private Key'
+        },
+        overwrote_existing: {
+            type: 'boolean',
+            title: 'Overwrote Existing'
+        }
+    },
+    type: 'object',
+    required: ['public_key', 'private_key', 'overwrote_existing'],
+    title: 'VapidKeysGenerateResponse',
+    description: `Response for POST /admin/settings/vapid_keys/generate.
+
+Returns BOTH the public and private VAPID keys exactly once. Subsequent
+admin GETs on either row return the redacted shape (public is plain JSONB
+and remains visible; private has \`\`value=null, has_value=true\`\`).
+Re-calling the endpoint is intentionally destructive (D025) — every
+existing push subscription becomes unverifiable until devices re-subscribe.`
+} as const;
+
+export const VapidPublicKeyResponseSchema = {
+    properties: {
+        public_key: {
+            type: 'string',
+            title: 'Public Key'
+        }
+    },
+    type: 'object',
+    required: ['public_key'],
+    title: 'VapidPublicKeyResponse',
+    description: 'Response for GET /api/v1/push/vapid_public_key (no auth).'
 } as const;
