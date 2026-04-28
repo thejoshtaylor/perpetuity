@@ -105,6 +105,14 @@ def create_user_with_personal_team(
         membership = TeamMember(user_id=user.id, team_id=team.id, role=TeamRole.admin)
         session.add(membership)
 
+        # M005/S02: every team gets the system-owned _direct_claude /
+        # _direct_codex workflows ready to fire (D028). Seed BEFORE commit
+        # so a seed failure rolls the user + team + membership back —
+        # an orphan team without its dashboard buttons would be a
+        # half-state surface.
+        from app.api.workflows_seed import seed_system_workflows
+        seed_system_workflows(session, team.id)
+
         session.commit()
     except Exception:
         session.rollback()
@@ -139,6 +147,14 @@ def create_team_with_admin(
             user_id=creator_id, team_id=team.id, role=TeamRole.admin
         )
         session.add(membership)
+
+        # M005/S02: every team gets the system-owned _direct_claude /
+        # _direct_codex workflows ready to fire (D028). Seed BEFORE commit
+        # so a seed failure rolls the team + membership back rather than
+        # leaving an orphan team without its dashboard buttons.
+        from app.api.workflows_seed import seed_system_workflows
+        seed_system_workflows(session, team.id)
+
         session.commit()
     except Exception:
         session.rollback()

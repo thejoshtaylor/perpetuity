@@ -36,6 +36,7 @@ from orchestrator.errors import (
 )
 from orchestrator.reaper import start_reaper, stop_reaper
 from orchestrator.redis_client import RedisSessionRegistry, set_registry
+from orchestrator.routes_exec import router as exec_router
 from orchestrator.routes_github import router as github_router
 from orchestrator.routes_projects import router as projects_router
 from orchestrator.routes_sessions import router as sessions_router
@@ -387,6 +388,12 @@ app.include_router(ws_router)
 app.include_router(github_router)
 app.include_router(team_mirror_router)
 app.include_router(projects_router)
+# M005/S02: one-shot exec endpoint that the backend's run_workflow Celery
+# task uses to drive each ``ai`` step inside the (user, team) workspace
+# container. Mounted under the same /v1/sessions prefix as the tmux
+# session lifecycle, but ``session_id`` here is purely a correlation
+# handle — see routes_exec.py module docstring.
+app.include_router(exec_router)
 
 
 @app.get("/v1/health")
