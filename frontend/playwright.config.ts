@@ -49,7 +49,14 @@ export default defineConfig({
       // M005-oaptsz/S01/T05: m005-oaptsz-sw-bypass needs the production
       // build so the SW actually registers — the dedicated m005-oaptsz-sw
       // project below is the only place that spec runs.
-      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
+      // M005-oaptsz/S03/T05: m005-oaptsz-push is also pinned to its own
+      // project (preview build + serviceWorkers:'allow' + pre-granted
+      // notifications permission); excluded everywhere else.
+      testIgnore: [
+        'm004-guylpp.spec.ts',
+        'm005-oaptsz-sw-bypass.spec.ts',
+        'm005-oaptsz-push.spec.ts',
+      ],
     },
 
     {
@@ -59,7 +66,11 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
+      testIgnore: [
+        'm004-guylpp.spec.ts',
+        'm005-oaptsz-sw-bypass.spec.ts',
+        'm005-oaptsz-push.spec.ts',
+      ],
     },
 
     {
@@ -68,7 +79,11 @@ export default defineConfig({
         ...devices['Pixel 5'],
         storageState: { cookies: [], origins: [] },
       },
-      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
+      testIgnore: [
+        'm004-guylpp.spec.ts',
+        'm005-oaptsz-sw-bypass.spec.ts',
+        'm005-oaptsz-push.spec.ts',
+      ],
     },
 
     // M005-oaptsz/S01/T04: iOS mobile-audit project. Uses iPhone 13 device
@@ -83,7 +98,11 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
+      testIgnore: [
+        'm004-guylpp.spec.ts',
+        'm005-oaptsz-sw-bypass.spec.ts',
+        'm005-oaptsz-push.spec.ts',
+      ],
     },
 
     // M005-oaptsz/S01/T04: desktop Firefox keyboard/mouse regression catch.
@@ -96,7 +115,11 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: ['m004-guylpp.spec.ts', 'm005-oaptsz-sw-bypass.spec.ts'],
+      testIgnore: [
+        'm004-guylpp.spec.ts',
+        'm005-oaptsz-sw-bypass.spec.ts',
+        'm005-oaptsz-push.spec.ts',
+      ],
     },
 
     // M004/S06/T05: dedicated project that ONLY runs the m004-guylpp e2e.
@@ -134,6 +157,27 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
       testMatch: /m005-oaptsz-sw-bypass\.spec\.ts/,
+    },
+
+    // M005-oaptsz/S03/T05: dedicated project that ONLY runs the push slice
+    // contract gate. Mirrors m005-oaptsz-sw's preview-build wiring (the SW
+    // only registers under :4173) and adds Notification permission +
+    // serviceWorkers:'allow' + the seeded superuser's storageState so the
+    // spec can subscribe end-to-end without scripting the browser-level
+    // permission dialog.
+    //
+    // Run with:  cd frontend && bunx playwright test --project=m005-oaptsz-push
+    {
+      name: 'm005-oaptsz-push',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:4173',
+        permissions: ['notifications'],
+        serviceWorkers: 'allow',
+        storageState: 'playwright/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testMatch: /m005-oaptsz-push\.spec\.ts/,
     },
 
     // {

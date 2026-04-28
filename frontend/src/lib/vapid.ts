@@ -6,9 +6,7 @@
 // transport string. This is the standard MDN snippet, isolated as a pure
 // utility so it can be unit-tested without spinning up the SW.
 
-export function urlBase64ToUint8Array(
-  base64: string,
-): Uint8Array<ArrayBuffer> {
+export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   if (typeof base64 !== "string" || base64.length === 0) {
     throw new Error("vapid: empty base64 input")
   }
@@ -29,10 +27,7 @@ export function urlBase64ToUint8Array(
 export async function endpointHash(endpoint: string): Promise<string> {
   // Client-side mirror of the backend's `endpoint_hash=sha256[:8]` log token.
   // Same hash function so log surfaces line up across frontend / backend.
-  if (
-    typeof crypto === "undefined" ||
-    typeof crypto.subtle === "undefined"
-  ) {
+  if (typeof crypto === "undefined" || typeof crypto.subtle === "undefined") {
     return "unknown"
   }
   const bytes = new TextEncoder().encode(endpoint)

@@ -48,6 +48,12 @@ interface TestRenderMessage {
   _testRenderEcho: true
 }
 
+interface TestClickMessage {
+  type: "TEST_CLICK"
+  payload: { url: string; kind?: string }
+  _testRenderEcho: true
+}
+
 const FALLBACK_TITLE = "Perpetuity"
 const FALLBACK_BODY = "You have a new notification"
 const FALLBACK_ICON = "/pwa-192.png"
@@ -109,21 +115,40 @@ function parsePushPayload(event: PushEvent): PushPayload | null {
 }
 
 async function showPushNotification(payload: PushPayload): Promise<void> {
-  await self.registration.showNotification(payload.title, {
-    body: payload.body,
-    data: { url: payload.url, kind: payload.kind },
-    icon: payload.icon ?? FALLBACK_ICON,
-    badge: FALLBACK_ICON,
-    tag: payload.kind,
-  })
-  console.info(`pwa.push.received kind=${payload.kind}`)
+  // The BroadcastChannel echo is the test-only render proof (T05). It MUST
+  // fire even if showNotification rejects (e.g. headless Chromium without a
+  // working notification subsystem) so the spec can assert on the SW's
+  // intent — that it reached the render code with the correct payload —
+  // without depending on the OS notification surface, which is unreliable
+  // under Playwright. Production observability (`pwa.push.received`)
+  // continues to fire only on successful render.
   try {
     const channel = new BroadcastChannel(PUSH_TEST_CHANNEL)
-    channel.postMessage({ type: "RECEIVED", kind: payload.kind })
+    channel.postMessage({
+      type: "RECEIVED",
+      kind: payload.kind,
+      title: payload.title,
+      body: payload.body,
+    })
     channel.close()
   } catch {
     /* BroadcastChannel may be absent in some test envs; never fail render */
   }
+  try {
+    await self.registration.showNotification(payload.title, {
+      body: payload.body,
+      data: { url: payload.url, kind: payload.kind },
+      icon: payload.icon ?? FALLBACK_ICON,
+      badge: FALLBACK_ICON,
+      tag: payload.kind,
+    })
+  } catch (e) {
+    console.error(
+      `pwa.push.show_failed cause=${e instanceof Error ? e.message : String(e)}`,
+    )
+    return
+  }
+  console.info(`pwa.push.received kind=${payload.kind}`)
 }
 
 self.addEventListener("push", (event) => {
@@ -137,48 +162,57 @@ self.addEventListener("push", (event) => {
   event.waitUntil(showPushNotification(payload))
 })
 
+async function handleNotificationClick(targetPath: string): Promise<void> {
+  console.info(`pwa.push.notification_clicked target_path=${targetPath}`)
+  // Test-only echo (T05): unconditional, posted up front so the spec can
+  // assert on the SW's intent regardless of whether focus()/openWindow()
+  // succeed under Playwright (where the SW often has no controlled clients
+  // and `client.focus()` is a no-op). Production observability above still
+  // captures the click on the production console surface.
+  try {
+    const channel = new BroadcastChannel(PUSH_TEST_CHANNEL)
+    channel.postMessage({ type: "CLICKED", url: targetPath })
+    channel.close()
+  } catch {
+    /* ignore */
+  }
+  const allClients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  })
+  for (const client of allClients) {
+    if ("focus" in client) {
+      client.postMessage({ type: "NAVIGATE", url: targetPath })
+      try {
+        await client.focus()
+      } catch {
+        /* focus may throw on uncontrolled clients; ignore */
+      }
+      return
+    }
+  }
+  try {
+    await self.clients.openWindow(targetPath)
+  } catch {
+    /* openWindow may also fail in some test envs */
+  }
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
-  const data = (event.notification.data ?? {}) as { url?: string; kind?: string }
+  const data = (event.notification.data ?? {}) as {
+    url?: string
+    kind?: string
+  }
   const targetPath = data.url || "/"
-  console.info(`pwa.push.notification_clicked target_path=${targetPath}`)
-
-  event.waitUntil(
-    (async () => {
-      const allClients = await self.clients.matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      })
-      for (const client of allClients) {
-        if ("focus" in client) {
-          client.postMessage({ type: "NAVIGATE", url: targetPath })
-          await client.focus()
-          try {
-            const channel = new BroadcastChannel(PUSH_TEST_CHANNEL)
-            channel.postMessage({ type: "CLICKED", url: targetPath })
-            channel.close()
-          } catch {
-            /* ignore */
-          }
-          return
-        }
-      }
-      await self.clients.openWindow(targetPath)
-      try {
-        const channel = new BroadcastChannel(PUSH_TEST_CHANNEL)
-        channel.postMessage({ type: "CLICKED", url: targetPath })
-        channel.close()
-      } catch {
-        /* ignore */
-      }
-    })(),
-  )
+  event.waitUntil(handleNotificationClick(targetPath))
 })
 
 self.addEventListener("message", (event) => {
   const data = event.data as
     | { type?: string }
     | TestRenderMessage
+    | TestClickMessage
     | undefined
   if (!data?.type) return
   if (data.type === "SKIP_WAITING") {
@@ -194,5 +228,18 @@ self.addEventListener("message", (event) => {
   ) {
     const msg = data as TestRenderMessage
     event.waitUntil(showPushNotification(msg.payload))
+    return
+  }
+  // Test-only click hook: same gating as TEST_PUSH. Reuses the production
+  // notificationclick code path so the spec asserts on the real
+  // CLICKED-broadcast + console.info contract without needing to dispatch a
+  // synthetic NotificationEvent (which Playwright cannot fabricate).
+  if (
+    data.type === "TEST_CLICK" &&
+    (data as TestClickMessage)._testRenderEcho === true
+  ) {
+    const msg = data as TestClickMessage
+    const targetPath = msg.payload?.url || "/"
+    event.waitUntil(handleNotificationClick(targetPath))
   }
 })

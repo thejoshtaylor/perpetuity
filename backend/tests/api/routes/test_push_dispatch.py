@@ -523,3 +523,118 @@ def test_dispatch_unknown_exception_logs_send_failed_no_prune(
         "push.dispatch.send_failed" in m and "cause=RuntimeError" in m
         for m in msgs
     ), msgs
+
+
+def test_multi_device_410_prune_end_to_end(
+    db: Session, monkeypatch: pytest.MonkeyPatch, caplog
+):
+    """T05 slice contract: multi-device fan-out + selective prune.
+
+    One user with three sibling subscriptions. The mocked Mozilla Push Service
+    returns 201 for A, 410 for B, 500 for C — the dispatcher must:
+
+      * deliver A: last_seen_at advances + consecutive_failures reset to 0;
+      * prune B: row deleted + push.dispatch.pruned_410 INFO emitted;
+      * stage C: row remains with consecutive_failures=1 + last_status_code=500
+        + push.dispatch.consecutive_failure WARNING (count=1); NO
+        push.dispatch.pruned_max_failures WARNING (we are nowhere near five).
+
+    All three rows belong to one user, so this is the "multi-device" condition
+    of R023 advanced — the dispatch wraps a single session.commit() so the
+    A-bump, B-delete, and C-bump land atomically.
+    """
+    user_id = _seed_user(db)
+    _seed_vapid_keys(db)
+
+    endpoint_a = "https://mock-push.invalid/device-a-token"
+    endpoint_b = "https://mock-push.invalid/device-b-token"
+    endpoint_c = "https://mock-push.invalid/device-c-token"
+
+    sub_a = _seed_subscription(db, user_id=user_id, endpoint=endpoint_a)
+    sub_b = _seed_subscription(db, user_id=user_id, endpoint=endpoint_b)
+    sub_c = _seed_subscription(db, user_id=user_id, endpoint=endpoint_c)
+    sub_a_id, sub_b_id, sub_c_id = sub_a.id, sub_b.id, sub_c.id
+    a_seen_before = sub_a.last_seen_at
+
+    # Per-endpoint outcome map. Order is not guaranteed by the SELECT, so the
+    # mock dispatches based on the subscription_info.endpoint value rather
+    # than call ordinal.
+    outcomes = {
+        endpoint_a: lambda: _FakeResponse(201),
+        endpoint_b: lambda: (_ for _ in ()).throw(_make_webpush_exception(410)),
+        endpoint_c: lambda: (_ for _ in ()).throw(_make_webpush_exception(500)),
+    }
+
+    def behavior(**kwargs):
+        endpoint = kwargs["subscription_info"]["endpoint"]
+        return outcomes[endpoint]()
+
+    calls = _patch_webpush(monkeypatch, behavior=behavior)
+
+    with caplog.at_level(logging.DEBUG, logger="app.core.push_dispatch"):
+        delivered = push_dispatch.dispatch_push(
+            db,
+            user_id=user_id,
+            kind=NotificationKind.workflow_run_failed,
+            title="multi-device test",
+            body="body",
+            url="/runs/abc",
+        )
+
+    # One delivery (A); B was pruned, C was bumped-not-pruned.
+    assert delivered == 1
+    posted_endpoints = {c["subscription_info"]["endpoint"] for c in calls}
+    assert posted_endpoints == {endpoint_a, endpoint_b, endpoint_c}
+
+    db.expire_all()
+
+    # A — delivered, counter reset, last_seen_at advanced.
+    row_a = db.get(PushSubscription, sub_a_id)
+    assert row_a is not None
+    assert row_a.last_status_code == 201
+    assert row_a.consecutive_failures == 0
+    assert row_a.last_seen_at is not None
+    assert row_a.last_seen_at >= a_seen_before  # type: ignore[operator]
+
+    # B — pruned (row gone).
+    assert db.get(PushSubscription, sub_b_id) is None
+
+    # C — staged with one failure, NOT pruned (we're at 1, threshold is 5).
+    row_c = db.get(PushSubscription, sub_c_id)
+    assert row_c is not None
+    assert row_c.consecutive_failures == 1
+    assert row_c.last_status_code == 500
+
+    # Log surfaces — the slice's grep-gate contract.
+    msgs = [rec.getMessage() for rec in caplog.records]
+
+    a_hash = hashlib.sha256(endpoint_a.encode("utf-8")).hexdigest()[:8]
+    b_hash = hashlib.sha256(endpoint_b.encode("utf-8")).hexdigest()[:8]
+    c_hash = hashlib.sha256(endpoint_c.encode("utf-8")).hexdigest()[:8]
+
+    # delivered: A
+    assert any(
+        "push.dispatch.delivered" in m and f"endpoint_hash={a_hash}" in m
+        for m in msgs
+    ), msgs
+    # pruned_410: B
+    assert any(
+        "push.dispatch.pruned_410" in m and f"endpoint_hash={b_hash}" in m
+        for m in msgs
+    ), msgs
+    # consecutive_failure (count=1): C
+    assert any(
+        "push.dispatch.consecutive_failure" in m
+        and f"endpoint_hash={c_hash}" in m
+        and "count=1" in m
+        for m in msgs
+    ), msgs
+    # pruned_max_failures: must NOT be logged for C (one failure, not five).
+    assert not any(
+        "push.dispatch.pruned_max_failures" in m for m in msgs
+    ), msgs
+
+    # Redaction gate: no raw endpoint URL anywhere in caplog.
+    for m in msgs:
+        for raw in (endpoint_a, endpoint_b, endpoint_c):
+            assert raw not in m, f"raw endpoint leaked into log: {m}"
