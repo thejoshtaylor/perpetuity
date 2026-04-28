@@ -106,7 +106,7 @@ class BoomLimiter:
 
 
 async def _fake_transcribe_success(
-    _session: Session, *, _audio: bytes, _filename: str, _content_type: str
+    _session: Session, *, audio: bytes, filename: str, content_type: str
 ) -> grok_stt.GrokSttResult:
     return grok_stt.GrokSttResult(text=TRANSCRIPT_VALUE)
 
