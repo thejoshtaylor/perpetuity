@@ -41,6 +41,12 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
+      // M004/S06/T05: the m004-guylpp spec needs the mock-github sidecars
+      // and an orchestrator parameterized to talk to them — running it
+      // under the default chromium project would fail because the compose
+      // orchestrator points at the real api.github.com. The dedicated
+      // m004-guylpp project below is the only place this spec runs.
+      testIgnore: 'm004-guylpp.spec.ts',
     },
 
     {
@@ -50,6 +56,7 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],
+      testIgnore: 'm004-guylpp.spec.ts',
     },
 
     {
@@ -58,6 +65,24 @@ export default defineConfig({
         ...devices['Pixel 5'],
         storageState: { cookies: [], origins: [] },
       },
+      testIgnore: 'm004-guylpp.spec.ts',
+    },
+
+    // M004/S06/T05: dedicated project that ONLY runs the m004-guylpp e2e.
+    // Inherits the chromium auth state so the spec lands as the seeded
+    // superuser for /admin/settings flows, but boots its own mock-github
+    // sidecars + ephemeral orchestrator inside the spec's beforeAll.
+    //
+    // Run with:  cd frontend && VITE_API_URL=http://localhost:8001 \
+    //              bunx playwright test --project=m004-guylpp
+    {
+      name: 'm004-guylpp',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testMatch: /m004-guylpp\.spec\.ts/,
     },
 
     // {
