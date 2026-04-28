@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class AdminService {
     /**
@@ -89,6 +89,117 @@ export class AdminService {
             }
         });
     }
+    
+    /**
+     * List System Settings
+     * List all system settings, ordered by key.
+     *
+     * Returns `{data: [SystemSettingPublic, ...], count}`. The full set is
+     * expected to stay tiny (one row per registered key), so no pagination.
+     * Sensitive rows have their `value` redacted to `null` — clients use
+     * `has_value` to render the `Set` vs `Replace` UI.
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static listSystemSettings(): CancelablePromise<AdminListSystemSettingsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/admin/settings'
+        });
+    }
+    
+    /**
+     * Get System Setting
+     * Return a single system setting or 404. Sensitive rows are redacted.
+     * @param data The data for the request.
+     * @param data.key
+     * @returns SystemSettingPublic Successful Response
+     * @throws ApiError
+     */
+    public static getSystemSetting(data: AdminGetSystemSettingData): CancelablePromise<AdminGetSystemSettingResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/admin/settings/{key}',
+            path: {
+                key: data.key
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Put System Setting
+     * Validate, UPSERT, and return the setting plus any shrink warnings.
+     *
+     * Reject-by-default on unknown keys. Per-key validators raise 422 with
+     * `{detail: 'invalid_value_for_key', key, reason}` on bad input.
+     *
+     * Sensitive keys (`spec.sensitive=True`) take the encrypted-storage path:
+     * the value is Fernet-encrypted, written to BYTEA `value_encrypted`, and
+     * `value` is NULLed. The PUT response for sensitive keys returns
+     * `value=None` — the plaintext does NOT cross the API boundary on PUT.
+     *
+     * Non-sensitive keys take the JSONB path and behave as in M002.
+     *
+     * For `workspace_volume_size_gb`, also computes the partial-apply shrink
+     * warnings (D015): rows with size_gb > new_value are reported but not
+     * rewritten. New volumes pick up the new default; existing rows keep their
+     * historical cap (cap divergence allowed).
+     * @param data The data for the request.
+     * @param data.key
+     * @param data.requestBody
+     * @returns SystemSettingPutResponse Successful Response
+     * @throws ApiError
+     */
+    public static putSystemSetting(data: AdminPutSystemSettingData): CancelablePromise<AdminPutSystemSettingResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/admin/settings/{key}',
+            path: {
+                key: data.key
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Generate System Setting
+     * Server-side seed a generator-backed sensitive setting.
+     *
+     * Returns the freshly-generated plaintext value EXACTLY ONCE; subsequent
+     * GETs return `value=null, has_value=true`. Re-calling this endpoint is
+     * intentionally destructive (D025): a fresh webhook secret breaks every
+     * in-flight webhook until GitHub is updated to match. Operators are
+     * expected to rotate upstream first, generate here second.
+     *
+     * 422 shapes:
+     * - `unknown_setting_key` for an unregistered key (matches PUT).
+     * - `no_generator_for_key` for a registered key with no generator
+     * (e.g. `github_app_private_key`, which has no server-side seed —
+     * the operator pastes the PEM via PUT).
+     * @param data The data for the request.
+     * @param data.key
+     * @returns SystemSettingGenerateResponse Successful Response
+     * @throws ApiError
+     */
+    public static generateSystemSetting(data: AdminGenerateSystemSettingData): CancelablePromise<AdminGenerateSystemSettingResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/admin/settings/{key}/generate',
+            path: {
+                key: data.key
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
 }
 
 export class AuthService {
@@ -142,6 +253,137 @@ export class AuthService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/auth/logout'
+        });
+    }
+}
+
+export class GithubService {
+    /**
+     * Get Github Install Url
+     * Mint an install-state JWT and return the GitHub App install URL.
+     *
+     * Requires the caller to be a team admin. Reads `github_app_client_id`
+     * from `system_settings` to build the install URL — when the operator has
+     * not yet seeded the App credentials, returns 404 `github_app_not_configured`
+     * so the FE can prompt the system admin to fill in the missing setting.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns InstallUrlResponse Successful Response
+     * @throws ApiError
+     */
+    public static getGithubInstallUrl(data: GithubGetGithubInstallUrlData): CancelablePromise<GithubGetGithubInstallUrlResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/github/install-url',
+            path: {
+                team_id: data.teamId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Github Install Callback
+     * Public install-callback. GitHub redirects the operator's browser here.
+     *
+     * No FastAPI auth dep — the state JWT IS the auth: only a team admin who
+     * walked the install-url path could have been issued one, and the 10-min
+     * expiry bounds replay risk. Validates the state, confirms the team still
+     * exists, looks up the installation via the orchestrator, then UPSERTs the
+     * row by `installation_id`. A second callback for the same `installation_id`
+     * is idempotent — the row's `team_id` is overwritten and a WARNING log
+     * line records the reassignment.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns GitHubAppInstallationPublic Successful Response
+     * @throws ApiError
+     */
+    public static githubInstallCallback(data: GithubGithubInstallCallbackData): CancelablePromise<GithubGithubInstallCallbackResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/github/install-callback',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Github Installations
+     * List installations bound to a team, newest first.
+     *
+     * Team-admin gated — same shape as every other team-mutation surface so
+     * the auth boundary is uniform across the slice. Returns the
+     * `{data, count}` envelope used by the FE listing components.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static listGithubInstallations(data: GithubListGithubInstallationsData): CancelablePromise<GithubListGithubInstallationsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/github/installations',
+            path: {
+                team_id: data.teamId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Github Installation
+     * Remove a local installation record. Does NOT call GitHub.
+     *
+     * The GitHub-side install is operator-managed and revoked at github.com;
+     * deleting the local row simply forgets the team↔installation binding.
+     * Team-admin gated. 404 covers both missing rows and rows owned by a
+     * different team — keeps cross-team existence non-enumerable.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @param data.installationRowId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteGithubInstallation(data: GithubDeleteGithubInstallationData): CancelablePromise<GithubDeleteGithubInstallationResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/teams/{team_id}/github/installations/{installation_row_id}',
+            path: {
+                team_id: data.teamId,
+                installation_row_id: data.installationRowId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Receive Github Webhook
+     * Receive a GitHub webhook delivery.
+     *
+     * Returns 200 on accepted (verified) deliveries — including duplicates
+     * of a previously-accepted delivery_id, since GitHub will retry for 24h
+     * and we MUST be idempotent. Returns 401 on bad/missing signature, 400
+     * on valid-signature-but-malformed-JSON, and 503 when the secret is
+     * unconfigured. Decrypt failure on the secret raises
+     * ``SystemSettingDecryptError`` → 503 via the global handler in
+     * ``app.main`` (see the S01 contract). All structured logs follow the
+     * slice's logging contract — see this module's docstring.
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static receiveGithubWebhook(): CancelablePromise<GithubReceiveGithubWebhookResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/github/webhooks'
         });
     }
 }
@@ -343,6 +585,355 @@ export class PrivateService {
     }
 }
 
+export class ProjectsService {
+    /**
+     * List Team Projects
+     * List the projects in a team. Member-gated.
+     *
+     * - 404 if team is missing.
+     * - 403 if caller is not a member of the team.
+     * - 200 `{data: [ProjectPublic, ...], count: int}` ordered by created_at DESC.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns ProjectsPublic Successful Response
+     * @throws ApiError
+     */
+    public static listTeamProjects(data: ProjectsListTeamProjectsData): CancelablePromise<ProjectsListTeamProjectsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/projects',
+            path: {
+                team_id: data.teamId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Team Project
+     * Create a project + default push-rule (mode=manual_workflow). Admin-gated.
+     *
+     * Validates that the supplied `installation_id` is bound to this team — the
+     * cross-team installation case returns 404 `installation_not_in_team` so a
+     * caller cannot enumerate other teams' installations. UNIQUE (team_id, name)
+     * collision returns 409 `project_name_taken`.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @param data.requestBody
+     * @returns ProjectPublic Successful Response
+     * @throws ApiError
+     */
+    public static createTeamProject(data: ProjectsCreateTeamProjectData): CancelablePromise<ProjectsCreateTeamProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/teams/{team_id}/projects',
+            path: {
+                team_id: data.teamId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Project
+     * Read a project. Member-gated via the project's team.
+     *
+     * - 404 `project_not_found` if missing or owned by a team the caller is
+     * not a member of.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns ProjectPublic Successful Response
+     * @throws ApiError
+     */
+    public static getProject(data: ProjectsGetProjectData): CancelablePromise<ProjectsGetProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Project
+     * Rename a project. Admin-gated.
+     *
+     * Today only `name` is updatable. UNIQUE (team_id, name) collisions return
+     * 409 `project_name_taken`.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.requestBody
+     * @returns ProjectPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateProject(data: ProjectsUpdateProjectData): CancelablePromise<ProjectsUpdateProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/projects/{project_id}',
+            path: {
+                project_id: data.projectId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Project
+     * Delete a project. Admin-gated.
+     *
+     * The push_rule row cascades via the FK (ON DELETE CASCADE on
+     * `project_push_rules.project_id`).
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns void Successful Response
+     * @throws ApiError
+     */
+    public static deleteProject(data: ProjectsDeleteProjectData): CancelablePromise<ProjectsDeleteProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/projects/{project_id}',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Project Push Rule
+     * Read a project's push-rule. Member-gated via the project's team.
+     *
+     * The rule row is created at project-creation time (default
+     * mode=manual_workflow), so a 404 here means the project itself was
+     * missing or not visible to the caller.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns ProjectPushRulePublic Successful Response
+     * @throws ApiError
+     */
+    public static getProjectPushRule(data: ProjectsGetProjectPushRuleData): CancelablePromise<ProjectsGetProjectPushRuleResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/push-rule',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Put Project Push Rule
+     * Update a project's push-rule. Admin-gated.
+     *
+     * Accepts mode + optional branch_pattern + optional workflow_id. Mode-
+     * specific field validation:
+     * - mode=rule              → branch_pattern is required
+     * - mode=manual_workflow   → workflow_id is required
+     * - mode=auto              → both extras stored as NULL
+     * Unknown modes return 422.
+     *
+     * On a transition to/from mode=auto the handler also fires a one-shot
+     * POST to the orchestrator's install-push-hook / uninstall-push-hook
+     * endpoint to keep the mirror's hook state in sync with the rule. The
+     * rule write is the source of truth — the hook call is best-effort and
+     * its failures are logged WARNING but do NOT fail the PUT (the next
+     * clone-to-mirror reconverges hook state per the persisted rule).
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.requestBody
+     * @returns ProjectPushRulePublic Successful Response
+     * @throws ApiError
+     */
+    public static putProjectPushRule(data: ProjectsPutProjectPushRuleData): CancelablePromise<ProjectsPutProjectPushRuleResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/projects/{project_id}/push-rule',
+            path: {
+                project_id: data.projectId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Open Project
+     * Materialize the project into the calling user's workspace. Member-gated.
+     *
+     * The chain (D016 trust boundary: backend gates ownership, orchestrator
+     * obeys shared-secret):
+     *
+     * 1. Load the project + assert caller is a team member (404 on either
+     * missing or cross-team — MEM263 enumeration block).
+     * 2. POST /v1/teams/{team_id}/mirror/ensure (idempotent — calling
+     * every time is fine and matches the documented contract; orchestrator
+     * no-ops when the mirror already runs).
+     * 3. POST /v1/projects/{project_id}/materialize-mirror with
+     * {team_id, repo_full_name, installation_id} pulled from the project
+     * row.
+     * 4. POST /v1/projects/{project_id}/materialize-user with
+     * {user_id, team_id, project_name}.
+     *
+     * Returns ``{workspace_path, mirror_status, user_status, duration_ms}``.
+     *
+     * Failure modes:
+     * - 404 ``project_not_found`` (missing or cross-team caller).
+     * - 503 ``orchestrator_unavailable`` (any hop unreachable).
+     * - 502 — propagated verbatim from the failing hop's body. Common
+     * reasons: ``github_clone_failed`` (mirror), ``user_clone_failed``
+     * (user-side; reason=``user_clone_exit_128`` if MEM264 regressed).
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static openProject(data: ProjectsOpenProjectData): CancelablePromise<ProjectsOpenProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/open',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class SessionsService {
+    /**
+     * Create Session
+     * Create a fresh terminal session for `team_id` (caller must be a member).
+     *
+     * Request: `{"team_id": "<uuid>"}`
+     * Response: `{"session_id": "<uuid>", "team_id": "<uuid>", "created_at": "<iso>"}`
+     *
+     * Orchestrator unreachable → 503. Team not found → 404. Caller not a
+     * member of `team_id` → 403.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static createSession(data: SessionsCreateSessionData): CancelablePromise<SessionsCreateSessionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/sessions',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Sessions
+     * List sessions belonging to the caller.
+     *
+     * `team_id` query param is optional — if omitted the backend asks the
+     * orchestrator for all sessions belonging to the caller (across teams).
+     * Backend never trusts the orchestrator's record without verifying
+     * `record.user_id == current_user.id` after the fact.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static listSessions(data: SessionsListSessionsData = {}): CancelablePromise<SessionsListSessionsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/sessions',
+            query: {
+                team_id: data.teamId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Session
+     * Tear down a session the caller owns.
+     *
+     * Per the no-enumeration rule: a missing record AND a record owned by
+     * another user both return 404 with the same body. The caller cannot tell
+     * "doesn't exist" from "exists but isn't yours".
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteSession(data: SessionsDeleteSessionData): CancelablePromise<SessionsDeleteSessionResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/sessions/{session_id}',
+            path: {
+                session_id: data.sessionId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Session Scrollback
+     * Fetch the current tmux scrollback for a session the caller owns.
+     *
+     * Backend exposes this as GET (it is a read in the public API surface);
+     * the orchestrator endpoint stays POST per S01 plan to keep the locked
+     * frame-protocol stable. The asymmetry is intentional — the WS attach
+     * frame is the only place that base64-encodes scrollback; this proxy
+     * returns the raw UTF-8 string the orchestrator yielded.
+     *
+     * Per the no-enumeration rule (MEM113/MEM123): a missing record AND a
+     * record owned by another user both return 404 with an identical body.
+     * Orchestrator unreachable on either the lookup or the scrollback fetch
+     * surfaces as 503.
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static getSessionScrollback(data: SessionsGetSessionScrollbackData): CancelablePromise<SessionsGetSessionScrollbackResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/sessions/{session_id}/scrollback',
+            path: {
+                session_id: data.sessionId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
 export class TeamsService {
     /**
      * Read Teams
@@ -511,6 +1102,42 @@ export class TeamsService {
                 team_id: data.teamId,
                 user_id: data.userId
             },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Team Mirror
+     * Toggle the per-team `always_on` flag on `team_mirror_volumes`.
+     *
+     * The backend never calls the orchestrator here — the toggle just biases
+     * the next reaper tick which reads the row directly. Auto-creates the row
+     * with a placeholder `volume_path='pending:<team_id>'` on first PATCH so
+     * an admin can pre-toggle a team that has never spun up a mirror; the
+     * orchestrator's ensure path replaces the placeholder on first cold-start.
+     *
+     * - 404 if team missing (does NOT auto-create a row for an unknown team).
+     * - 403 if caller is not an admin on the team.
+     * - 422 if body is missing/malformed (pydantic).
+     * - 200 TeamMirrorVolumePublic on success (idempotent — same value twice
+     * returns 200 with no warning).
+     * @param data The data for the request.
+     * @param data.teamId
+     * @param data.requestBody
+     * @returns TeamMirrorVolumePublic Successful Response
+     * @throws ApiError
+     */
+    public static updateTeamMirror(data: TeamsUpdateTeamMirrorData): CancelablePromise<TeamsUpdateTeamMirrorResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/teams/{team_id}/mirror',
+            path: {
+                team_id: data.teamId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
