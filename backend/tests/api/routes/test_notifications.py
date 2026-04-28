@@ -20,6 +20,7 @@ from app.models import (
     Notification,
     NotificationKind,
     NotificationPreference,
+    PushSubscription,
 )
 from tests.utils.utils import random_email, random_lower_string
 
@@ -39,10 +40,12 @@ NOTIF_URL = f"{API}/notifications"
 def _clean_notifications_state(db: Session):
     db.execute(delete(Notification))
     db.execute(delete(NotificationPreference))
+    db.execute(delete(PushSubscription))
     db.commit()
     yield
     db.execute(delete(Notification))
     db.execute(delete(NotificationPreference))
+    db.execute(delete(PushSubscription))
     db.commit()
 
 
@@ -554,3 +557,118 @@ def test_notifications_test_endpoint_respects_kind_override_and_preference(
         )
     ).all()
     assert len(rows_after_on) == 1
+
+
+# ---------------------------------------------------------------------------
+# Push channel — notify() routes through app.core.push_dispatch.dispatch_push
+# when the per-(user, kind) push preference resolves true. These tests
+# monkeypatch the dispatcher directly so they don't depend on a real upstream
+# push service.
+# ---------------------------------------------------------------------------
+
+
+def test_push_channel_routes_to_dispatcher(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """push=True preference → dispatch_push called with the notify args."""
+    user_id, _ = _signup(client)
+
+    # Seed a push preference of push=True for the system kind.
+    db.add(
+        NotificationPreference(
+            user_id=user_id,
+            workflow_id=None,
+            event_type="system",
+            in_app=True,
+            push=True,
+        )
+    )
+    # Seed two PushSubscription rows so the dispatcher would have something
+    # to fan-out to in the real path.
+    db.add(
+        PushSubscription(
+            user_id=user_id,
+            endpoint="https://mock-push.invalid/phone-token",
+            keys={"p256dh": "p1", "auth": "a1"},
+        )
+    )
+    db.add(
+        PushSubscription(
+            user_id=user_id,
+            endpoint="https://mock-push.invalid/laptop-token",
+            keys={"p256dh": "p2", "auth": "a2"},
+        )
+    )
+    db.commit()
+
+    # Capture every call into dispatch_push so we can assert the args.
+    calls: list[dict[str, Any]] = []
+
+    def fake_dispatch(session, **kwargs):
+        calls.append(kwargs)
+        return 2  # both deliveries accepted
+
+    from app.core import push_dispatch
+
+    monkeypatch.setattr(push_dispatch, "dispatch_push", fake_dispatch)
+
+    row = notify(
+        db,
+        user_id=user_id,
+        kind=NotificationKind.system,
+        payload={"message": "hello world"},
+    )
+    assert row is not None  # in-app channel still landed
+
+    assert len(calls) == 1, calls
+    call = calls[0]
+    assert call["user_id"] == user_id
+    assert call["kind"] is NotificationKind.system
+    # Title/body/url derived from the kind switch in notify._render_push.
+    assert call["title"] == "Notification"
+    assert call["body"] == "hello world"
+    assert call["url"] == "/"
+
+
+def test_push_channel_off_skips_dispatcher(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """push=False preference → dispatch_push NOT called even with in_app=True."""
+    user_id, _ = _signup(client)
+
+    db.add(
+        NotificationPreference(
+            user_id=user_id,
+            workflow_id=None,
+            event_type="system",
+            in_app=True,
+            push=False,
+        )
+    )
+    db.add(
+        PushSubscription(
+            user_id=user_id,
+            endpoint="https://mock-push.invalid/phone-token",
+            keys={"p256dh": "p1", "auth": "a1"},
+        )
+    )
+    db.commit()
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_dispatch(session, **kwargs):
+        calls.append(kwargs)
+        return 0
+
+    from app.core import push_dispatch
+
+    monkeypatch.setattr(push_dispatch, "dispatch_push", fake_dispatch)
+
+    row = notify(
+        db,
+        user_id=user_id,
+        kind=NotificationKind.system,
+        payload={"message": "hello"},
+    )
+    assert row is not None  # in-app row inserted
+    assert calls == []  # dispatcher untouched
