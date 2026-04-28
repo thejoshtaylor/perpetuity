@@ -5,6 +5,7 @@ import { Footer } from "@/components/Common/Footer"
 import { InstallBanner } from "@/components/Common/InstallBanner"
 import { OfflineBanner } from "@/components/Common/OfflineBanner"
 import { NotificationBell } from "@/components/notifications/NotificationBell"
+import { PushPermissionPrompt } from "@/components/notifications/PushPermissionPrompt"
 import AppSidebar from "@/components/Sidebar/AppSidebar"
 import {
   SidebarInset,
@@ -36,6 +37,7 @@ function Layout() {
       <SidebarInset>
         <OfflineBanner />
         <InstallBanner />
+        <PushPermissionPrompt />
         <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1 text-muted-foreground" />
           <div className="ml-auto flex items-center gap-2">
