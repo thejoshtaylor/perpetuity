@@ -337,6 +337,17 @@ export type TeamMirrorVolumePublic = {
 
 export type TeamRole = 'member' | 'admin';
 
+export type TeamSecretPut = {
+    value: string;
+};
+
+export type TeamSecretStatus = {
+    key: string;
+    has_value: boolean;
+    sensitive: boolean;
+    updated_at?: (string | null);
+};
+
 export type TeamWithRole = {
     id: string;
     name: string;
@@ -755,6 +766,34 @@ export type TeamsUpdateTeamMirrorData = {
 };
 
 export type TeamsUpdateTeamMirrorResponse = (TeamMirrorVolumePublic);
+
+export type TeamSecretsPutTeamSecretData = {
+    key: string;
+    requestBody: TeamSecretPut;
+    teamId: string;
+};
+
+export type TeamSecretsPutTeamSecretResponse = (TeamSecretStatus);
+
+export type TeamSecretsGetTeamSecretStatusData = {
+    key: string;
+    teamId: string;
+};
+
+export type TeamSecretsGetTeamSecretStatusResponse = (TeamSecretStatus);
+
+export type TeamSecretsDeleteTeamSecretRouteData = {
+    key: string;
+    teamId: string;
+};
+
+export type TeamSecretsDeleteTeamSecretRouteResponse = (void);
+
+export type TeamSecretsListTeamSecretsData = {
+    teamId: string;
+};
+
+export type TeamSecretsListTeamSecretsResponse = (Array<TeamSecretStatus>);
 
 export type UsersReadUsersData = {
     limit?: number;

@@ -1323,6 +1323,50 @@ export const TeamRoleSchema = {
     title: 'TeamRole'
 } as const;
 
+export const TeamSecretPutSchema = {
+    properties: {
+        value: {
+            type: 'string',
+            title: 'Value'
+        }
+    },
+    type: 'object',
+    required: ['value'],
+    title: 'TeamSecretPut'
+} as const;
+
+export const TeamSecretStatusSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        has_value: {
+            type: 'boolean',
+            title: 'Has Value'
+        },
+        sensitive: {
+            type: 'boolean',
+            title: 'Sensitive'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['key', 'has_value', 'sensitive'],
+    title: 'TeamSecretStatus'
+} as const;
+
 export const TeamWithRoleSchema = {
     properties: {
         id: {

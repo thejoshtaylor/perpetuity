@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateVapidKeysResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, PushGetVapidPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, PushListSubscriptionsResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, VoiceTranscribeVoiceData, VoiceTranscribeVoiceResponse } from './types.gen';
+import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateVapidKeysResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, PushGetVapidPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, PushListSubscriptionsResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, TeamSecretsPutTeamSecretData, TeamSecretsPutTeamSecretResponse, TeamSecretsGetTeamSecretStatusData, TeamSecretsGetTeamSecretStatusResponse, TeamSecretsDeleteTeamSecretRouteData, TeamSecretsDeleteTeamSecretRouteResponse, TeamSecretsListTeamSecretsData, TeamSecretsListTeamSecretsResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, VoiceTranscribeVoiceData, VoiceTranscribeVoiceResponse } from './types.gen';
 
 export class AdminService {
     /**
@@ -1411,6 +1411,131 @@ export class TeamsService {
             },
             body: data.requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class TeamSecretsService {
+    /**
+     * Put Team Secret
+     * Validate, encrypt, and upsert `team_secrets[(team_id, key)]`.
+     *
+     * Team-admin gate. Unknown key → 400 `unregistered_key`. Validator
+     * failure → 400 `invalid_value_shape` (with `hint` from the validator's
+     * `reason` attribute, never the value). On success: returns
+     * `TeamSecretStatus` with `has_value=True` and the freshly bumped
+     * `updated_at`; emits INFO `team_secret_set`.
+     *
+     * The plaintext lives only in this function's frame and `set_team_secret`'s
+     * frame — never logged, never echoed in the response, never attached to
+     * an exception. The response body is the same shape GET-single returns,
+     * so the frontend's React Query cache update can use the PUT response
+     * verbatim without a follow-up GET.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @param data.key
+     * @param data.requestBody
+     * @returns TeamSecretStatus Successful Response
+     * @throws ApiError
+     */
+    public static putTeamSecret(data: TeamSecretsPutTeamSecretData): CancelablePromise<TeamSecretsPutTeamSecretResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/teams/{team_id}/secrets/{key}',
+            path: {
+                team_id: data.teamId,
+                key: data.key
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Team Secret Status
+     * Return the status row for `(team_id, key)`.
+     *
+     * Team-member gate. Unknown key → 400 `unregistered_key`. Missing row →
+     * 404 `team_secret_not_set`.
+     *
+     * Returns `{key, has_value, sensitive, updated_at}` — never the value.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @param data.key
+     * @returns TeamSecretStatus Successful Response
+     * @throws ApiError
+     */
+    public static getTeamSecretStatus(data: TeamSecretsGetTeamSecretStatusData): CancelablePromise<TeamSecretsGetTeamSecretStatusResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/secrets/{key}',
+            path: {
+                team_id: data.teamId,
+                key: data.key
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Team Secret Route
+     * Remove `(team_id, key)` from team_secrets.
+     *
+     * Team-admin gate. Unknown key → 400 `unregistered_key` (DELETE on an
+     * unregistered key is a programming error worth surfacing). Missing row →
+     * 404 `team_secret_not_set` so the frontend distinguishes "already gone"
+     * from "successfully deleted" without a re-GET. On success: 204 empty
+     * body, INFO log `team_secret_deleted`.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @param data.key
+     * @returns void Successful Response
+     * @throws ApiError
+     */
+    public static deleteTeamSecretRoute(data: TeamSecretsDeleteTeamSecretRouteData): CancelablePromise<TeamSecretsDeleteTeamSecretRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/teams/{team_id}/secrets/{key}',
+            path: {
+                team_id: data.teamId,
+                key: data.key
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Team Secrets
+     * Return one `TeamSecretStatus` per registered key for `team_id`.
+     *
+     * Team-member gate. Keys without a row come back with `has_value=False`,
+     * `updated_at=None`. Order matches the registry's declaration order, so
+     * the frontend panel renders rows in a stable sequence.
+     *
+     * No value ever crosses this surface — the DTO has no `value` field at all,
+     * so a future refactor cannot accidentally widen the response.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns TeamSecretStatus Successful Response
+     * @throws ApiError
+     */
+    public static listTeamSecrets(data: TeamSecretsListTeamSecretsData): CancelablePromise<TeamSecretsListTeamSecretsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/secrets',
+            path: {
+                team_id: data.teamId
+            },
             errors: {
                 422: 'Validation Error'
             }

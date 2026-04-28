@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Suspense } from "react"
 
 import { TeamsService, type TeamWithRole, UsersService } from "@/client"
+import TeamSecretsPanel from "@/components/team/TeamSecretsPanel"
 import ConnectionsList from "@/components/Teams/GitHub/ConnectionsList"
 import InviteButton from "@/components/Teams/InviteButton"
 import MembersList, { MembersListPending } from "@/components/Teams/MembersList"
@@ -128,6 +129,15 @@ function TeamDetailContent() {
           <ConnectionsList teamId={team.id} callerIsAdmin={callerIsAdmin} />
         </section>
       )}
+
+      <section
+        className="flex flex-col gap-2"
+        data-testid="team-secrets-section"
+        aria-label="AI credentials"
+      >
+        <h2 className="text-sm font-medium">AI credentials</h2>
+        <TeamSecretsPanel teamId={team.id} callerIsAdmin={callerIsAdmin} />
+      </section>
 
       {callerIsAdmin && !team.is_personal && (
         <section

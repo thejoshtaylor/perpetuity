@@ -47,7 +47,7 @@ S01 closes the credential-storage boundary that S02–S06 read from. Every downs
   - Files: `backend/app/api/routes/team_secrets.py`, `backend/app/api/main.py`, `backend/app/main.py`, `backend/tests/api/test_team_secrets_routes.py`
   - Verify: cd backend && uv run pytest tests/api/test_team_secrets_routes.py -v
 
-- [ ] **T04: Frontend AI Credentials panel + paste-once modal** `est:1 day`
+- [x] **T04: Frontend AI Credentials panel + paste-once modal** `est:1 day`
   Add `frontend/src/components/team/TeamSecretsPanel.tsx` rendered inside the existing team settings route (`frontend/src/routes/_layout/teams_.$teamId.tsx` or whichever route holds team settings — inspect the M002+M004 layout to confirm). Panel fetches `GET /api/v1/teams/{team_id}/secrets` via React Query; displays both registered keys with a `has_value` badge ('Set' green / 'Not set' gray) plus `updated_at` timestamp when set. Team admin sees Replace + Delete buttons; non-admin sees read-only badges (use existing role-check hook from `frontend/src/hooks/useTeamRole.ts` or similar). Replace button opens a paste-once modal with a password-type input + show/hide toggle, validates non-empty client-side, submits via React Query mutation that calls PUT, on success invalidates the list query and closes the modal. Delete button confirms then issues DELETE. Add Playwright/Vitest component test covering: panel renders both keys, admin sees buttons, non-admin sees read-only, paste-once modal submits + closes + refreshes list.
   - Files: `frontend/src/components/team/TeamSecretsPanel.tsx`, `frontend/src/routes/_layout/teams_.$teamId.tsx`, `frontend/src/api/teamSecrets.ts`, `frontend/tests/components/TeamSecretsPanel.test.tsx`
   - Verify: cd frontend && npm test -- TeamSecretsPanel
