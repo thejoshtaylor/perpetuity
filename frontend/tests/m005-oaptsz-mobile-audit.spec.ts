@@ -29,6 +29,24 @@ const ROUTES: RouteCase[] = [
 ]
 
 test.describe("M005-oaptsz mobile audit", () => {
+  // M005-oaptsz/S02/T04: NotificationBell ships in `_layout.tsx` for every
+  // authenticated route. The button uses size='icon' which inherits
+  // min-h-11/min-w-11 from button.tsx — verify the live boundingBox is
+  // >=44x44 once at a representative authenticated route so a regression in
+  // the bell's button-variant wiring is caught by all four projects.
+  test("notification bell: visible and touch target >=44x44", async ({
+    page,
+  }) => {
+    await page.goto("/teams")
+    await page.waitForLoadState("networkidle").catch(() => {})
+    const bell = page.getByTestId("notification-bell")
+    await expect(bell).toBeVisible()
+    const box = await bell.boundingBox()
+    expect(box, "notification bell has no boundingBox").not.toBeNull()
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  })
+
   for (const route of ROUTES) {
     test.describe(route.name, () => {
       if (!route.authenticated) {
