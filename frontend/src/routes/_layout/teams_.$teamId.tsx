@@ -7,6 +7,7 @@ import ConnectionsList from "@/components/Teams/GitHub/ConnectionsList"
 import InviteButton from "@/components/Teams/InviteButton"
 import MembersList, { MembersListPending } from "@/components/Teams/MembersList"
 import AlwaysOnToggle from "@/components/Teams/Mirror/AlwaysOnToggle"
+import ProjectsList from "@/components/Teams/Projects/ProjectsList"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -138,6 +139,15 @@ function TeamDetailContent() {
           <AlwaysOnToggle teamId={team.id} />
         </section>
       )}
+
+      <section
+        className="flex flex-col gap-2"
+        data-testid="projects-section-wrapper"
+        aria-label="Team projects"
+      >
+        <h2 className="text-sm font-medium">Projects</h2>
+        <ProjectsList teamId={team.id} callerIsAdmin={callerIsAdmin} />
+      </section>
     </div>
   )
 }
