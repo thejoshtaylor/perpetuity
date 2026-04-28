@@ -25,8 +25,8 @@ def parse_cors(v: Any) -> list[str] | str:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        # Use top level .env file (one level above ./backend/)
-        env_file="../.env",
+        # Use top level .env file whether settings load from ./backend or repo root.
+        env_file=("../.env", ".env"),
         env_ignore_empty=True,
         extra="ignore",
     )
