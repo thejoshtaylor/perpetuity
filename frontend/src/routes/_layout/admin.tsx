@@ -50,12 +50,14 @@ function UsersTable() {
 }
 
 function Admin() {
-  // A child file-route (admin.teams_.$teamId.tsx) nests under this route.
-  // When the URL matches the child, render the child via <Outlet /> instead
-  // of the users-table shell, so /admin/teams/<id> shows the members page.
+  // Child file-routes (admin.teams_.$teamId.tsx, admin.settings.tsx) nest
+  // under this route. When the URL matches a child, render it via <Outlet />
+  // instead of the users-table shell.
   const matches = useMatches()
   const hasChildMatch = matches.some(
-    (m) => m.routeId === "/_layout/admin/teams_/$teamId",
+    (m) =>
+      m.routeId === "/_layout/admin/teams_/$teamId" ||
+      m.routeId === "/_layout/admin/settings",
   )
   if (hasChildMatch) {
     return <Outlet />

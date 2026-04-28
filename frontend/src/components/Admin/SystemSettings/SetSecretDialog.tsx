@@ -1,0 +1,168 @@
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useEffect } from "react"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
+
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { LoadingButton } from "@/components/ui/loading-button"
+import { cn } from "@/lib/utils"
+
+type Variant = "pem" | "string"
+
+const pemSchema = z.object({
+  value: z
+    .string()
+    .min(1, { message: "PEM cannot be empty" })
+    .refine((s) => s.includes("BEGIN") && s.includes("PRIVATE KEY"), {
+      message: "Value must be a PEM-encoded private key",
+    }),
+})
+
+const stringSchema = z.object({
+  value: z.string().min(1, { message: "Value cannot be empty" }),
+})
+
+type Props = {
+  settingKey: string
+  hasValue: boolean
+  variant: Variant
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (value: string) => void
+  isPending: boolean
+}
+
+/**
+ * Operator-supplied secret entry. Used for both:
+ *  - github_app_private_key (variant="pem", multiline textarea)
+ *  - github_app_webhook_secret (variant="string", single-line) — the operator
+ *    can paste their own secret here, or use Generate to seed one.
+ *
+ * The plaintext lives only in react-hook-form state for the lifetime of this
+ * dialog — when the dialog closes (mutation success or Cancel) the form is
+ * reset and the value is gone.
+ */
+export function SetSecretDialog({
+  settingKey,
+  hasValue,
+  variant,
+  open,
+  onOpenChange,
+  onSubmit,
+  isPending,
+}: Props) {
+  const schema = variant === "pem" ? pemSchema : stringSchema
+  type FormData = z.infer<typeof schema>
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(schema),
+    mode: "onSubmit",
+    defaultValues: { value: "" },
+  })
+
+  useEffect(() => {
+    if (!open) form.reset({ value: "" })
+  }, [open, form])
+
+  const handleSubmit = (data: FormData) => {
+    onSubmit(data.value)
+  }
+
+  const verb = hasValue ? "Replace" : "Set"
+  const placeholder =
+    variant === "pem"
+      ? "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----"
+      : "Paste secret here"
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {verb} {settingKey}
+          </DialogTitle>
+          <DialogDescription>
+            The plaintext is encrypted at rest. After saving, this value will
+            never be returned by the API again.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleSubmit)}>
+            <div className="grid gap-4 py-4">
+              <FormField
+                control={form.control}
+                name="value"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Value <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      {variant === "pem" ? (
+                        <textarea
+                          {...field}
+                          placeholder={placeholder}
+                          rows={10}
+                          autoComplete="off"
+                          spellCheck={false}
+                          data-testid={`system-settings-set-input-${settingKey}`}
+                          className={cn(
+                            "border-input placeholder:text-muted-foreground focus-visible:ring-ring/50 flex w-full rounded-md border bg-transparent px-3 py-2 text-sm font-mono shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
+                          )}
+                        />
+                      ) : (
+                        <Input
+                          {...field}
+                          placeholder={placeholder}
+                          autoComplete="off"
+                          spellCheck={false}
+                          type="text"
+                          data-testid={`system-settings-set-input-${settingKey}`}
+                        />
+                      )}
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline" disabled={isPending}>
+                  Cancel
+                </Button>
+              </DialogClose>
+              <LoadingButton
+                type="submit"
+                loading={isPending}
+                data-testid={`system-settings-set-submit-${settingKey}`}
+              >
+                Save
+              </LoadingButton>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export default SetSecretDialog

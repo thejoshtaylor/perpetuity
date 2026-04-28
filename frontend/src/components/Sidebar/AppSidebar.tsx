@@ -1,4 +1,4 @@
-import { Briefcase, Shield, Users } from "lucide-react"
+import { Briefcase, Settings, Shield, Users } from "lucide-react"
 
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
@@ -26,6 +26,7 @@ export function AppSidebar() {
           ...baseItems,
           { icon: Users, title: "Admin", path: "/admin" },
           { icon: Shield, title: "All Teams", path: "/admin/teams" },
+          { icon: Settings, title: "System Settings", path: "/admin/settings" },
         ]
       : baseItems
 
