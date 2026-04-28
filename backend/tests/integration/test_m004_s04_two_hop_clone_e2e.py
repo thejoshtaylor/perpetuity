@@ -1217,35 +1217,10 @@ def test_m004_s04_two_hop_clone_e2e(  # noqa: PLR0912, PLR0915
         f"auto_push_started project_id={project_id} rule_mode=auto",
         timeout_s=15.0,
     ):
-        # Diagnostics: dump push stdout/stderr, the mirror's hook script,
-        # and the result of running the hook by hand to surface what
-        # happened.
-        hook_dump = _docker(
-            "exec", mirror_name,
-            "cat", f"/repos/{project_id}.git/hooks/post-receive",
-            check=False, timeout=10,
-        )
-        manual_hook_r = _docker(
-            "exec", "-e", f"GIT_DIR=/repos/{project_id}.git",
-            mirror_name,
-            "sh", f"/repos/{project_id}.git/hooks/post-receive",
-            check=False, timeout=15,
-        )
-        env_dump = _docker(
-            "exec", mirror_name,
-            "sh", "-c", "echo PERPETUITY_ORCH_KEY=${PERPETUITY_ORCH_KEY:0:8}...",
-            check=False, timeout=10,
-        )
         raise AssertionError(
             "missing auto_push_started in orch logs.\n"
             f"push_r.returncode={push_r.returncode}\n"
-            f"push_r.stdout={push_r.stdout!r}\n"
             f"push_r.stderr={push_r.stderr!r}\n"
-            f"---hook script---\n{hook_dump.stdout}\n"
-            f"---env in mirror (truncated key)---\n{env_dump.stdout}\n"
-            f"---manual hook run rc={manual_hook_r.returncode}---\n"
-            f"stdout={manual_hook_r.stdout}\n"
-            f"stderr={manual_hook_r.stderr}\n"
             f"---orch logs tail---\n{_container_logs_blob(eph_name)[-3000:]}"
         )
     assert _wait_for_log_marker(

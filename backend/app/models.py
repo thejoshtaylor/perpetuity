@@ -490,6 +490,90 @@ class ProjectPushRulePut(SQLModel):
     workflow_id: str | None = Field(default=None, max_length=255)
 
 
+# Verified GitHub webhook deliveries (M004/S05). The route HMAC-verifies the
+# request, then INSERT ... ON CONFLICT (delivery_id) DO NOTHING — the UNIQUE
+# constraint on `delivery_id` is the storage-layer enforcement of GitHub's
+# 24h retry idempotency contract (D025 / MEM229). `installation_id` is
+# nullable + FK SET NULL: losing an installation must not destroy the audit
+# trail of webhooks already received. `payload` is persisted in full but
+# intentionally NOT logged — only `event_type` + `delivery_id` are.
+class GitHubWebhookEvent(SQLModel, table=True):
+    __tablename__ = "github_webhook_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "delivery_id", name="uq_github_webhook_events_delivery_id"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    installation_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            BigInteger,
+            ForeignKey(
+                "github_app_installations.installation_id",
+                name="fk_github_webhook_events_installation_id",
+                ondelete="SET NULL",
+            ),
+            nullable=True,
+        ),
+    )
+    event_type: str = Field(max_length=64, nullable=False)
+    delivery_id: str = Field(max_length=64, nullable=False)
+    payload: dict[str, Any] = Field(
+        sa_column=Column(JSONB, nullable=False)
+    )
+    received_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    dispatch_status: str = Field(
+        default="noop", max_length=32, nullable=False
+    )
+    dispatch_error: str | None = Field(default=None, nullable=True)
+
+
+# Audit trail for rejected webhook deliveries (signature missing or invalid).
+# Body is intentionally NOT persisted here — only the metadata needed to
+# investigate abuse or misconfiguration. `delivery_id` is nullable because
+# GitHub's `X-GitHub-Delivery` header may be absent on a malformed request.
+class WebhookRejection(SQLModel, table=True):
+    __tablename__ = "webhook_rejections"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    delivery_id: str | None = Field(
+        default=None, max_length=64, nullable=True
+    )
+    signature_present: bool = Field(nullable=False)
+    signature_valid: bool = Field(nullable=False)
+    source_ip: str = Field(max_length=64, nullable=False)
+    received_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# Admin-side projection of GitHubWebhookEvent — never include `payload`,
+# the request body is sensitive and must not surface in admin UIs.
+class GitHubWebhookEventPublic(SQLModel):
+    id: uuid.UUID
+    installation_id: int | None = None
+    event_type: str
+    delivery_id: str
+    received_at: datetime | None = None
+    dispatch_status: str
+    dispatch_error: str | None = None
+
+
+class WebhookRejectionPublic(SQLModel):
+    id: uuid.UUID
+    delivery_id: str | None = None
+    signature_present: bool
+    signature_valid: bool
+    source_ip: str
+    received_at: datetime | None = None
+
+
 # Wire-shapes for the M004/S02 install handshake. Kept colocated with the
 # row model so the API surface and persistence shape evolve together.
 class InstallUrlResponse(SQLModel):
