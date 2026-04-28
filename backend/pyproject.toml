@@ -22,6 +22,7 @@ dependencies = [
     "httpx-ws<1.0.0,>=0.6.0",
     "websockets<14.0,>=12.0",
     "cryptography<46.0.0,>=43.0.0",
+    "pywebpush<2.0.0,>=1.14.0",
 ]
 
 [dependency-groups]

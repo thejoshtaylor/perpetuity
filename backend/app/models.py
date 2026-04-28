@@ -858,3 +858,118 @@ class NotificationTestTrigger(SQLModel):
     user_id: uuid.UUID | None = None
     message: str = "System test notification"
     kind: NotificationKind = NotificationKind.system
+
+
+# Web Push device registration (M005/S03). One row per (user, browser/device)
+# — phone + laptop = two rows. ``endpoint`` is the Mozilla / FCM / APNs Web
+# URL handed to us by the browser at subscribe time and is treated as opaque
+# secret on log surfaces (only sha256[:8] is ever emitted).
+# ``keys.{p256dh,auth}`` is the browser-issued ECDH keypair material that
+# pywebpush feeds into its message-encryption pipeline. The dispatcher (T04)
+# bumps ``last_seen_at`` on each successful delivery, records
+# ``last_status_code``, and prunes the row when the upstream returns 410 or
+# ``consecutive_failures`` reaches 5.
+class PushSubscription(SQLModel, table=True):
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "endpoint",
+            name="uq_push_subscriptions_user_id_endpoint",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id",
+        nullable=False,
+        ondelete="CASCADE",
+        index=True,
+    )
+    # ``endpoint`` is stored as TEXT (no max length) — Mozilla Push Service
+    # URLs comfortably fit in 255 chars today, but FCM/APNs are free to grow
+    # and we never want a DB-level truncation on a subscribe attempt.
+    endpoint: str = Field(nullable=False)
+    keys: dict[str, Any] = Field(
+        sa_column=Column(JSONB, nullable=False),
+    )
+    user_agent: str | None = Field(
+        default=None, max_length=500, nullable=True
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    last_seen_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    last_status_code: int | None = Field(default=None, nullable=True)
+    consecutive_failures: int = Field(default=0, nullable=False)
+
+
+class PushSubscriptionKeys(SQLModel):
+    """Browser-issued ECDH key material for Web Push message encryption.
+
+    Shape mirrors ``PushSubscription.toJSON().keys`` from the W3C Push API.
+    Both halves are url-safe-base64 strings; we don't validate base64 at the
+    API boundary — pywebpush surfaces a structured error at encrypt time if
+    the bytes are malformed.
+    """
+
+    p256dh: str = Field(min_length=1, max_length=512)
+    auth: str = Field(min_length=1, max_length=512)
+
+
+class PushSubscriptionCreate(SQLModel):
+    """POST /api/v1/push/subscribe body — full T03 wiring lands here.
+
+    Shape matches ``PushSubscription.toJSON()`` from the browser. T01 only
+    declares the model so the migration test imports are coherent; the
+    subscribe route ships in T03.
+    """
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+
+
+class PushSubscriptionPublic(SQLModel):
+    """Redaction-safe projection of a PushSubscription row.
+
+    NEVER include the raw ``endpoint`` — only ``endpoint_hash`` (the leading
+    8 chars of sha256(endpoint)). The hash is enough for the operator UI to
+    distinguish two devices and for log-cross-correlation, without leaking
+    the push URL itself (which is treated as a bearer-style secret).
+    """
+
+    id: uuid.UUID
+    endpoint_hash: str
+    user_agent: str | None = None
+    created_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+
+class PushSubscriptionsList(SQLModel):
+    data: list[PushSubscriptionPublic]
+    count: int
+
+
+class VapidKeysGenerateResponse(SQLModel):
+    """Response for POST /admin/settings/vapid_keys/generate.
+
+    Returns BOTH the public and private VAPID keys exactly once. Subsequent
+    admin GETs on either row return the redacted shape (public is plain JSONB
+    and remains visible; private has ``value=null, has_value=true``).
+    Re-calling the endpoint is intentionally destructive (D025) — every
+    existing push subscription becomes unverifiable until devices re-subscribe.
+    """
+
+    public_key: str
+    private_key: str
+    overwrote_existing: bool
+
+
+class VapidPublicKeyResponse(SQLModel):
+    """Response for GET /api/v1/push/vapid_public_key (no auth)."""
+
+    public_key: str

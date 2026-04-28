@@ -10,6 +10,7 @@ from app.api.routes import (
     notifications,
     private,
     projects,
+    push,
     sessions,
     teams,
     users,
@@ -32,6 +33,7 @@ api_router.include_router(ws.router)
 api_router.include_router(sessions.router)
 api_router.include_router(projects.router)
 api_router.include_router(notifications.router)
+api_router.include_router(push.router)
 
 
 if settings.ENVIRONMENT == "local":
