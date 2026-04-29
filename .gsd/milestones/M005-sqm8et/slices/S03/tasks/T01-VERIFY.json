@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M005-sqm8et/S03/T01",
+  "timestamp": 1777440742017,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_DB=perpetuity_app uv run pytest tests/migrations/test_s13_workflow_crud_extensions_migration.py -v",
+      "exitCode": 4,
+      "durationMs": 198,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

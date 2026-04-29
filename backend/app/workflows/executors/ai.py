@@ -56,6 +56,10 @@ from app.api.team_secrets import (
 )
 from app.core.config import settings
 from app.models import StepRun, Team, WorkflowRun, get_datetime_utc
+from app.workflows.executors._retry import (
+    OrchestratorExecFailed,
+    _orchestrator_exec_with_retry,
+)
 
 logger = logging.getLogger("app.workflows.executors.ai")
 
@@ -340,32 +344,24 @@ def run_ai_step(session: Session, step_run_id: uuid.UUID) -> None:
     base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
     url = f"{base}/v1/sessions/{session_id}/exec"
 
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
-            response = client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as exc:
-        # Connection / read / timeout / network failures all funnel here.
-        # `type(exc).__name__` keeps the row's stderr useful without
-        # leaking URLs (httpx str(exc) embeds the URL).
-        _mark_failed(
-            session,
-            step_run,
-            error_class="orchestrator_exec_failed",
-            stderr=type(exc).__name__,
-            started_monotonic=started_monotonic,
-        )
-        return
+    def _client_factory() -> Any:
+        return httpx.Client(timeout=_HTTP_TIMEOUT)
 
-    if response.status_code != 200:
-        # 504 (orchestrator-side timeout), 503 (docker unavailable), 5xx
-        # generally — all map to orchestrator_exec_failed. The status code
-        # is the only signal we surface; we deliberately don't echo the
-        # response body because it can carry orchestrator internals.
+    try:
+        response = _orchestrator_exec_with_retry(
+            _client_factory,
+            url,
+            body,
+            headers,
+            run_id=step_run.workflow_run_id,
+            step_index=step_run.step_index,
+        )
+    except OrchestratorExecFailed as exc:
         _mark_failed(
             session,
             step_run,
-            error_class="orchestrator_exec_failed",
-            stderr=f"orchestrator_status_{response.status_code}",
+            error_class=exc.error_class,
+            stderr=exc.stderr_hint,
             started_monotonic=started_monotonic,
         )
         return

@@ -419,33 +419,33 @@ def test_drive_run_empty_workflow_succeeds(
     assert fake.calls == []
 
 
-def test_drive_run_unknown_action_fails_step(
+def test_drive_run_shell_action_dispatched(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`shell` action in S02 (no executor wired) → step_run failed with
-    error_class='unsupported_action', run mirrors the same error_class."""
+    """S03: `shell` action is now dispatched — run succeeds when orchestrator
+    returns exit 0. Verifies that S02's placeholder `unsupported_action` path
+    is no longer taken for the shell action."""
+    from app.workflows.executors import shell as shell_executor
+
     team = _make_team(db)
     user_id = _make_user(db)
-    workflow_id = _make_workflow(db, team, actions=["shell"])
+    workflow_id = _make_workflow(
+        db, team, actions=["shell"], config={"cmd": ["echo", "hello"]}
+    )
     run_id = _make_pending_run(db, workflow_id, team.id, user_id)
+
+    fake = _FakeClient(
+        _FakeResponse(200, {"stdout": "hello", "exit_code": 0, "duration_ms": 1})
+    )
+    monkeypatch.setattr(shell_executor.httpx, "Client", lambda *a, **k: fake)
 
     _drive_run(db, run_id)
 
     db.expire_all()
     run = db.get(WorkflowRun, run_id)
     assert run is not None
-    assert run.status == "failed"
-    assert run.error_class == "unsupported_action"
-
-    step_row = db.execute(
-        text(
-            "SELECT status, error_class FROM step_runs "
-            "WHERE workflow_run_id = :r"
-        ),
-        {"r": run_id},
-    ).one()
-    assert step_row[0] == "failed"
-    assert step_row[1] == "unsupported_action"
+    assert run.status == "succeeded"
+    assert run.error_class is None
 
 
 def test_drive_run_unknown_run_id_returns_quietly(
@@ -471,9 +471,12 @@ def test_drive_run_unknown_run_id_returns_quietly(
 def test_drive_run_step_run_snapshot_freezes_step_config(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The step_runs.snapshot column must capture the WorkflowStep's full
-    shape at dispatch time so a later edit to the step config doesn't
-    rewrite history (R018).
+    """The step_runs.snapshot column must capture the FULLY RESOLVED config
+    at dispatch time so history shows what the executor actually saw (R018).
+
+    With T02 substitution: {prompt} is resolved to the trigger_payload value
+    before freezing into the DB row. A later edit to the step's prompt_template
+    config would not rewrite the step_run's snapshot.
     """
     team = _make_team(db)
     user_id = _make_user(db)
@@ -502,8 +505,9 @@ def test_drive_run_step_run_snapshot_freezes_step_config(
     # JSONB returns dict in psycopg.
     assert snapshot_row["action"] == "claude"
     assert snapshot_row["step_index"] == 0
+    # Substitution resolves {prompt} → "x" before freezing into the snapshot.
     assert snapshot_row["config"] == {
-        "prompt_template": "Original: {prompt}",
+        "prompt_template": "Original: x",
         "extra": "v1",
     }
 

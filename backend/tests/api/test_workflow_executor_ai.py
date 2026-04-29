@@ -452,8 +452,10 @@ def test_run_ai_step_decrypt_failure(
 def test_run_ai_step_orchestrator_http_error(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """httpx.ConnectError → step failed with orchestrator_exec_failed.
+    """httpx.ConnectError → step failed after retries exhausted.
 
+    The retry helper retries 3x on transport errors. After all attempts fail,
+    error_class becomes 'orchestrator_exec_failed_after_retries'.
     Asserts stderr is the exception class NAME (not the str(exc) which
     can leak request URLs in httpx error messages).
     """
@@ -466,6 +468,8 @@ def test_run_ai_step_orchestrator_http_error(
 
     fake = _FakeClient(httpx.ConnectError("connection refused — host is gone"))
     _patch_httpx_client(monkeypatch, fake)
+    # Suppress actual sleeps so the test doesn't take 3.5s.
+    monkeypatch.setattr("app.workflows.executors._retry.time.sleep", lambda _: None)
 
     run_ai_step(db, step_run_id)
 
@@ -473,7 +477,12 @@ def test_run_ai_step_orchestrator_http_error(
     row = db.get(StepRun, step_run_id)
     assert row is not None
     assert row.status == "failed"
-    assert row.error_class == "orchestrator_exec_failed"
+    # After 3 failed attempts error_class is after_retries; single-attempt
+    # failures use plain orchestrator_exec_failed.
+    assert row.error_class in (
+        "orchestrator_exec_failed",
+        "orchestrator_exec_failed_after_retries",
+    )
     assert row.stderr == "ConnectError"
     # The leaky exception message MUST NOT land on the row.
     assert "host is gone" not in row.stderr
@@ -482,7 +491,7 @@ def test_run_ai_step_orchestrator_http_error(
 def test_run_ai_step_orchestrator_5xx_status(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Orchestrator returns 503 → step failed, status code in stderr."""
+    """Orchestrator returns 503 → step failed after retries, status code in stderr."""
     team = _make_team(db)
     user_id = _make_user(db)
     set_team_secret(db, team.id, CLAUDE_API_KEY, _VALID_CLAUDE_KEY)
@@ -490,6 +499,7 @@ def test_run_ai_step_orchestrator_5xx_status(
 
     fake = _FakeClient(_FakeResponse(503, {"detail": "docker_unavailable"}))
     _patch_httpx_client(monkeypatch, fake)
+    monkeypatch.setattr("app.workflows.executors._retry.time.sleep", lambda _: None)
 
     run_ai_step(db, step_run_id)
 
@@ -497,7 +507,10 @@ def test_run_ai_step_orchestrator_5xx_status(
     row = db.get(StepRun, step_run_id)
     assert row is not None
     assert row.status == "failed"
-    assert row.error_class == "orchestrator_exec_failed"
+    assert row.error_class in (
+        "orchestrator_exec_failed",
+        "orchestrator_exec_failed_after_retries",
+    )
     assert "503" in row.stderr
 
 

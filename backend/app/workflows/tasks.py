@@ -54,10 +54,15 @@ from app.models import (
     get_datetime_utc,
 )
 from app.workflows.executors.ai import run_ai_step
+from app.workflows.executors.git import run_git_step
+from app.workflows.executors.shell import run_shell_step
+from app.workflows.substitution import SubstitutionError, render_step_inputs
 
 logger = logging.getLogger("app.workflows.tasks")
 
 _AI_ACTIONS = frozenset({"claude", "codex"})
+_SHELL_ACTIONS = frozenset({"shell"})
+_GIT_ACTIONS = frozenset({"git"})
 
 
 def _snapshot_step(step: WorkflowStep) -> dict[str, Any]:
@@ -81,6 +86,7 @@ def _execute_one_step(
     session: Session,
     workflow_run: WorkflowRun,
     step: WorkflowStep,
+    prior_step_runs: list[dict[str, Any]],
 ) -> StepRun:
     """Transition the pending step_run row to `running`, dispatch the
     executor, return the row.
@@ -95,16 +101,74 @@ def _execute_one_step(
     pre-dating the API-side pre-create, or a manual DB tweak) we fall back
     to creating one.
 
+    Substitution is applied before storing the snapshot so `step_runs.snapshot`
+    carries the FULLY RESOLVED inputs (R018: history must show what the
+    executor actually saw).
+
     Returns the (refreshed) StepRun so the caller can read `status` /
     `error_class` to decide whether to keep iterating.
     """
+    raw_snapshot = _snapshot_step(step)
+
+    # Run substitution on the config before freezing into the DB row.
+    try:
+        resolved_snapshot = render_step_inputs(
+            raw_snapshot,
+            workflow_run.trigger_payload or {},
+            prior_step_runs,
+        )
+    except SubstitutionError as exc:
+        # Substitution failure: create/update the step_run row and mark
+        # it failed immediately before dispatching any executor.
+        existing = session.exec(
+            select(StepRun)
+            .where(StepRun.workflow_run_id == workflow_run.id)
+            .where(StepRun.step_index == step.step_index)
+        ).first()
+        now = get_datetime_utc()
+        if existing is not None:
+            existing.snapshot = raw_snapshot
+            existing.status = "failed"
+            existing.error_class = "substitution_failed"
+            existing.stderr = f"undefined substitution variable: {exc.missing!r}"
+            existing.started_at = now
+            existing.finished_at = now
+            existing.duration_ms = 0
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            step_run = existing
+        else:
+            step_run = StepRun(
+                workflow_run_id=workflow_run.id,
+                step_index=step.step_index,
+                snapshot=raw_snapshot,
+                status="failed",
+                error_class="substitution_failed",
+                stderr=f"undefined substitution variable: {exc.missing!r}",
+                started_at=now,
+                finished_at=now,
+                duration_ms=0,
+            )
+            session.add(step_run)
+            session.commit()
+            session.refresh(step_run)
+        # Log only the variable NAME — never the surrounding rendered content.
+        logger.info(
+            "step_run_failed run_id=%s step_index=%s exit=none error_class=substitution_failed missing=%s",
+            workflow_run.id,
+            step.step_index,
+            exc.missing,
+        )
+        return step_run
+
     existing = session.exec(
         select(StepRun)
         .where(StepRun.workflow_run_id == workflow_run.id)
         .where(StepRun.step_index == step.step_index)
     ).first()
     if existing is not None:
-        existing.snapshot = _snapshot_step(step)
+        existing.snapshot = resolved_snapshot
         existing.status = "running"
         existing.started_at = get_datetime_utc()
         session.add(existing)
@@ -115,7 +179,7 @@ def _execute_one_step(
         step_run = StepRun(
             workflow_run_id=workflow_run.id,
             step_index=step.step_index,
-            snapshot=_snapshot_step(step),
+            snapshot=resolved_snapshot,
             status="running",
             started_at=get_datetime_utc(),
         )
@@ -125,15 +189,17 @@ def _execute_one_step(
 
     if step.action in _AI_ACTIONS:
         run_ai_step(session, step_run.id)
+    elif step.action in _SHELL_ACTIONS:
+        run_shell_step(session, step_run.id)
+    elif step.action in _GIT_ACTIONS:
+        run_git_step(session, step_run.id)
     else:
-        # shell / git → S03. Mark the step failed inline (without raising)
-        # so the parent run gets a clean failed status with a meaningful
-        # error_class.
+        # Unknown action — fail the step with a clear error_class.
         finished_at = get_datetime_utc()
         duration_ms = 0
         step_run.status = "failed"
         step_run.error_class = "unsupported_action"
-        step_run.stderr = f"action {step.action!r} not supported in S02"
+        step_run.stderr = f"action {step.action!r} not supported"
         step_run.finished_at = finished_at
         step_run.duration_ms = duration_ms
         session.add(step_run)
@@ -197,11 +263,14 @@ def _drive_run(session: Session, run_id: uuid.UUID) -> None:
     )
 
     failed_error_class: str | None = None
+    prior_step_runs: list[dict[str, Any]] = []
     for step in steps:
-        step_run = _execute_one_step(session, workflow_run, step)
+        step_run = _execute_one_step(session, workflow_run, step, prior_step_runs)
         if step_run.status == "failed":
             failed_error_class = step_run.error_class or "unknown"
             break
+        # Collect stdout for {prev.stdout} substitution in subsequent steps.
+        prior_step_runs.append({"stdout": step_run.stdout or ""})
 
     finished_at = get_datetime_utc()
     duration_ms = int((time.monotonic() - started_monotonic) * 1000)
