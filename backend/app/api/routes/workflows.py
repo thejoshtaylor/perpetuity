@@ -50,6 +50,7 @@ from app.models import (
     StepRun,
     StepRunPublic,
     Workflow,
+    WorkflowFormSchema,
     WorkflowPublic,
     WorkflowRun,
     WorkflowRunCreate,
@@ -61,6 +62,7 @@ from app.models import (
     WorkflowsPublic,
     get_datetime_utc,
 )
+from app.services.workflow_dispatch import TargetUserNoMembershipError, resolve_target_user
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +144,7 @@ def dispatch_workflow_run(
         raise
 
     # Direct-AI workflows require a non-empty `prompt` string in the trigger
-    # payload. Other workflow shapes (S03+) will be free-form; the validator
-    # here is intentionally narrow to the closed set we ship in S02.
+    # payload. Non-direct workflows validate required form fields instead.
     if workflow.name in _DIRECT_AI_NAMES:
         prompt = body.trigger_payload.get("prompt") if body.trigger_payload else None
         if not isinstance(prompt, str) or not prompt.strip():
@@ -154,6 +155,38 @@ def dispatch_workflow_run(
                     "field": "prompt",
                 },
             )
+    else:
+        # Validate required form fields defined in the workflow's form_schema.
+        raw_schema = workflow.form_schema or {}
+        if raw_schema:
+            try:
+                schema = WorkflowFormSchema.model_validate(raw_schema)
+            except Exception:
+                schema = WorkflowFormSchema()
+            payload = body.trigger_payload or {}
+            for field in schema.fields:
+                if field.required and not payload.get(field.name):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "detail": "missing_required_field",
+                            "field": field.name,
+                        },
+                    )
+
+    # Resolve target user via dispatch service (S03 scope semantics).
+    try:
+        target_user_id, _fallback_reason = resolve_target_user(
+            session, workflow, current_user.id
+        )
+    except TargetUserNoMembershipError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "detail": "target_user_no_membership",
+                "workflow_id": str(exc.workflow_id),
+            },
+        ) from exc
 
     # Steps in dense step_index order — same shape the worker iterates.
     steps = list(
@@ -169,7 +202,7 @@ def dispatch_workflow_run(
         team_id=workflow.team_id,
         trigger_type=WorkflowRunTriggerType.button.value,
         triggered_by_user_id=current_user.id,
-        target_user_id=current_user.id,
+        target_user_id=target_user_id,
         trigger_payload=dict(body.trigger_payload or {}),
         status=WorkflowRunStatus.pending.value,
     )

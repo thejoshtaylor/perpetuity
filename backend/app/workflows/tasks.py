@@ -263,8 +263,47 @@ def _drive_run(session: Session, run_id: uuid.UUID) -> None:
     )
 
     failed_error_class: str | None = None
+    cancelled_at_step: int | None = None
     prior_step_runs: list[dict[str, Any]] = []
     for step in steps:
+        # Cancellation watchpoint: re-fetch the run status before each step to
+        # detect a user-initiated cancel (status='cancelled' written by the API).
+        session.refresh(workflow_run)
+        if workflow_run.status == "cancelled":
+            cancelled_at_step = step.step_index
+            # Mark all remaining step_runs (this one and any after) as skipped.
+            remaining_steps = [s for s in steps if s.step_index >= step.step_index]
+            for remaining_step in remaining_steps:
+                existing = session.exec(
+                    select(StepRun)
+                    .where(StepRun.workflow_run_id == workflow_run.id)
+                    .where(StepRun.step_index == remaining_step.step_index)
+                ).first()
+                now = get_datetime_utc()
+                if existing is not None:
+                    existing.status = "skipped"
+                    existing.error_class = "cancelled"
+                    existing.finished_at = now
+                    existing.duration_ms = 0
+                    session.add(existing)
+                else:
+                    session.add(StepRun(
+                        workflow_run_id=workflow_run.id,
+                        step_index=remaining_step.step_index,
+                        snapshot=_snapshot_step(remaining_step),
+                        status="skipped",
+                        error_class="cancelled",
+                        finished_at=now,
+                        duration_ms=0,
+                    ))
+                logger.info(
+                    "step_run_skipped run_id=%s step_index=%d reason=cancelled",
+                    workflow_run.id,
+                    remaining_step.step_index,
+                )
+            session.commit()
+            break
+
         step_run = _execute_one_step(session, workflow_run, step, prior_step_runs)
         if step_run.status == "failed":
             failed_error_class = step_run.error_class or "unknown"
@@ -277,6 +316,23 @@ def _drive_run(session: Session, run_id: uuid.UUID) -> None:
     # Re-fetch under the same session to make sure we're writing on a
     # row with no stale in-memory state (the executors commit between).
     session.refresh(workflow_run)
+
+    # Handle cancellation terminal state — status is already 'cancelled',
+    # just stamp the timing fields if not yet set.
+    if workflow_run.status == "cancelled":
+        if workflow_run.finished_at is None:
+            workflow_run.finished_at = finished_at
+            workflow_run.duration_ms = duration_ms
+            session.add(workflow_run)
+            session.commit()
+        logger.info(
+            "workflow_run_cancelled run_id=%s at_step_index=%s duration_ms=%d cancelled_by=%s",
+            workflow_run.id,
+            cancelled_at_step,
+            duration_ms,
+            workflow_run.cancelled_by_user_id,
+        )
+        return
 
     if failed_error_class is not None:
         workflow_run.status = "failed"
