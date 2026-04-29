@@ -184,12 +184,11 @@ function RunDetailContent({ runId }: { runId: string }) {
       if (ctx?.prev) {
         qc.setQueryData(workflowRunQueryKey(runId), ctx.prev)
       }
+      // Restore state then invalidate so polling resumes from real server state.
+      qc.invalidateQueries({ queryKey: workflowRunQueryKey(runId) })
       toast.error("Cancel failed", {
         description: "The run could not be cancelled.",
       })
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: workflowRunQueryKey(runId) })
     },
   })
 

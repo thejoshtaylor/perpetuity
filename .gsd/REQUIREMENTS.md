@@ -114,17 +114,6 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: unmapped
 - Notes: none
 
-### R019 — Workflows can be scoped to a user (runs in their terminal space) or a team (round-robin or specified user selected for terminal-requiring steps). User-scoped workflows always use the triggering user's space.
-- Class: core-capability
-- Status: active
-- Description: Workflows can be scoped to a user (runs in their terminal space) or a team (round-robin or specified user selected for terminal-requiring steps). User-scoped workflows always use the triggering user's space.
-- Why it matters: Enables both personal automation and team-wide automated tasks.
-- Source: user
-- Primary owning slice: M005/S03
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Round-robin selection is for team workflows only.
-
 ### R020 — Dashboard shows configurable workflow trigger buttons. Each button can optionally present a form to collect user input before the workflow executes. Form data is passed as variables to workflow steps.
 - Class: primary-user-loop
 - Status: active
@@ -265,6 +254,17 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: Validated end-to-end by `backend/tests/integration/test_m002_s04_e2e.py::test_m002_s04_full_demo`: alice opens two distinct WS sessions for her personal team — both POST /api/v1/sessions calls hit the SAME (user, team) container (orchestrator response.created==True for the first, False for the second per MEM120) but each session is a distinct tmux session attached via `docker exec` and `tmux attach-session -t <session_id>`. The test writes a marker through sid_a (`echo 'a' > /workspaces/<team_id>/marker.txt`) and reads it back through sid_b (`cat /workspaces/<team_id>/marker.txt` returns 'a' in the data-frame stream) — proving distinct tmux sessions but shared container filesystem. GET /api/v1/sessions returns set {sid_a, sid_b}. DELETE one leaves the sibling AND the container alive. The orchestrator-side AttachMap (S04/T01) tracks per-session live-attach counts via `register`/`unregister` calls in `routes_ws.py::session_stream`, observable through `attach_registered`/`attach_unregistered` log lines (UUIDs only).
 - Notes: Multiple containers share a single mounted volume per user-team.
 
+### R019 — Workflows can be scoped to a user (runs in their terminal space) or a team (round-robin or specified user selected for terminal-requiring steps). User-scoped workflows always use the triggering user's space.
+- Class: core-capability
+- Status: validated
+- Description: Workflows can be scoped to a user (runs in their terminal space) or a team (round-robin or specified user selected for terminal-requiring steps). User-scoped workflows always use the triggering user's space.
+- Why it matters: Enables both personal automation and team-wide automated tasks.
+- Source: user
+- Primary owning slice: M005/S03
+- Supporting slices: none
+- Validation: WorkflowScope enum (user/team_specific/round_robin) implemented in backend/app/models.py. resolve_target_user() service in backend/app/services/workflow_dispatch.py handles all three scope variants with atomic round_robin cursor (UPDATE...RETURNING), membership validation (TargetUserNoMembershipError→409), and offline fallback. 11 pytest tests in backend/tests/api/test_workflow_dispatch_service.py cover all paths including cursor wrap, all-offline fallback, and partial-offline skip. Validated in M005/S03.
+- Notes: Round-robin selection is for team workflows only.
+
 ### R021 — Frontend ships with a valid Web App Manifest and service worker. Users can install the app on their phone or desktop home screen.
 - Class: launchability
 - Status: validated
@@ -390,7 +390,7 @@ This file is the explicit capability and coverage contract for the project.
 | R016 | primary-user-loop | active | M005/S01 | M003/S03 | unmapped |
 | R017 | core-capability | active | M005/S02 | M002/S02 | unmapped |
 | R018 | failure-visibility | active | M005/S02 | none | unmapped |
-| R019 | core-capability | active | M005/S03 | none | unmapped |
+| R019 | core-capability | validated | M005/S03 | none | WorkflowScope enum (user/team_specific/round_robin) implemented in backend/app/models.py. resolve_target_user() service in backend/app/services/workflow_dispatch.py handles all three scope variants with atomic round_robin cursor (UPDATE...RETURNING), membership validation (TargetUserNoMembershipError→409), and offline fallback. 11 pytest tests in backend/tests/api/test_workflow_dispatch_service.py cover all paths including cursor wrap, all-offline fallback, and partial-offline skip. Validated in M005/S03. |
 | R020 | primary-user-loop | active | M005/S01 | none | unmapped |
 | R021 | launchability | validated | M005-oaptsz/S01 | none | S01 delivered vite-plugin-pwa injectManifest with route-classified service worker (NetworkOnly /api/* and /ws/*, CacheFirst hashed assets, precache app shell), Web App Manifest + 192/512/maskable/180 icons, InstallBanner (Android beforeinstallprompt + iOS one-time toast) and OfflineBanner mounted in _layout. SW NetworkOnly contract proven by m005-oaptsz-sw-bypass.spec.ts (1/1 pass) using context.route() at BrowserContext level. Lighthouse install criteria satisfied; production preview at :4173 launches standalone. |
 | R022 | quality-attribute | validated | M005-oaptsz/S01 | M005-oaptsz/S02, M005-oaptsz/S03, M005-oaptsz/S04 | S01 four-project Playwright matrix (chromium, mobile-chrome Pixel-5, iphone-13-mobile-safari, desktop-firefox) walks 7 routes × assertNoHorizontalScroll + assertTouchTargets + 1% visual-diff. Design-system-primitive-floor (min-h-11/min-w-11) on Button, Input, PasswordInput, Tabs, SidebarTrigger inherits ≥44×44 to all consumers. S02 bell, S03 push prompt, S04 mic button all pass the same gate. 30/30 mobile-chrome+iphone-13 audit on S01; 16/16 with bell on S02; 15/17 on S04 (2 pre-existing /admin/teams chevron at 32×44px documented as MEM369). |
@@ -408,7 +408,7 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 16
-- Mapped to slices: 16
-- Validated: 13 (R001, R002, R003, R004, R005, R006, R007, R008, R021, R022, R023, R024, R025)
+- Active requirements: 15
+- Mapped to slices: 15
+- Validated: 14 (R001, R002, R003, R004, R005, R006, R007, R008, R019, R021, R022, R023, R024, R025)
 - Unmapped active requirements: 0
