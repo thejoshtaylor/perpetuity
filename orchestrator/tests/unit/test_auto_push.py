@@ -458,14 +458,19 @@ async def test_rule_changed_skipped_no_exec(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """If mode is no longer auto on re-read → skipped_rule_changed; no push."""
+    """If mode is an unrecognised value → skipped_rule_changed; no push.
+
+    Note: mode='manual_workflow' now returns 'skipped_rule_manual_workflow'
+    (a first-class result in M005/S04/T02). This test uses a truly stale/unknown
+    mode to exercise the fallback skipped_rule_changed path.
+    """
     pool = _FakePool()
     docker = _FakeDocker()
     project_id = str(uuid.uuid4())
     team_id = str(uuid.uuid4())
 
     _seed_project(pool, project_id=project_id, team_id=team_id)
-    _seed_rule(pool, project_id=project_id, mode="manual_workflow")
+    _seed_rule(pool, project_id=project_id, mode="unknown_legacy_mode")
     _seed_mirror(docker)
     _make_token_patcher(monkeypatch)
 

@@ -391,6 +391,20 @@ async def post_uninstall_push_hook(
 # ---------------------------------------------------------------------------
 
 
+class AutoPushCallbackBody(BaseModel):
+    """Optional JSON body for POST /v1/projects/{project_id}/auto-push-callback.
+
+    Legacy callers (the post-receive hook script) send no body; the route
+    defaults to an empty model so both old and new callers are compatible.
+
+    ``ref`` is the full Git ref string (e.g. ``refs/heads/feature/foo``)
+    forwarded from the webhook payload when the backend triggers a
+    mode='rule' dispatch on behalf of a push event.
+    """
+
+    ref: str | None = None
+
+
 class AutoPushCallbackResponse(BaseModel):
     """Body of POST /v1/projects/{project_id}/auto-push-callback.
 
@@ -413,13 +427,15 @@ class AutoPushCallbackResponse(BaseModel):
 async def post_auto_push_callback(
     project_id: uuid.UUID,
     request: Request,
+    body: AutoPushCallbackBody = AutoPushCallbackBody(),
 ) -> AutoPushCallbackResponse:
-    """Auto-push trigger from the mirror's post-receive hook.
+    """Auto-push trigger from the mirror's post-receive hook or webhook dispatch.
 
     The endpoint is gated by the orchestrator-wide SharedSecretMiddleware
     (the hook script presents X-Orchestrator-Key from PERPETUITY_ORCH_KEY
-    in the mirror's env). The body is empty by convention; the project_id
-    in the path is the only input — the hook script writes nothing else.
+    in the mirror's env). Legacy callers (post-receive hook) send no body;
+    webhook-triggered mode='rule' dispatch forwards ``{"ref": "refs/heads/..."}``
+    in the body.
 
     Always returns 200 with the run_auto_push result body. The post-receive
     hook ignores the status code anyway (auto-push is best-effort by D024).
@@ -436,6 +452,7 @@ async def post_auto_push_callback(
         pool,
         project_id=str(project_id),
         redis_client=redis_client,
+        ref=body.ref,
     )
 
     return AutoPushCallbackResponse(

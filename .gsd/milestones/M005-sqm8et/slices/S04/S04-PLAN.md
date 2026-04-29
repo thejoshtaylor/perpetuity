@@ -49,7 +49,7 @@ dispatch_github_event now crosses three runtime boundaries: (1) backend DB read 
   - Files: `backend/app/alembic/versions/s14_webhook_delivery_id.py`, `backend/app/models.py`, `backend/app/services/dispatch.py`, `backend/app/api/routes/github_webhooks.py`
   - Verify: Run: cd backend && uv run alembic upgrade head && uv run pytest tests/unit/test_s14_migration.py -v (migration applies without error). Run: uv run pytest tests/unit/test_dispatch_github_event.py -v (unit tests: mode=rule match, mode=rule no-match, mode=manual_workflow enqueue, duplicate delivery_id, missing installation). All pass.
 
-- [ ] **T02: Orchestrator auto_push.py — mode='rule' branch fnmatch executor** `est:1.5h`
+- [x] **T02: Orchestrator auto_push.py — mode='rule' branch fnmatch executor** `est:1.5h`
   Extend `run_auto_push` in `orchestrator/orchestrator/auto_push.py` to handle `mode='rule'` in addition to the existing `mode='auto'`.
 
 Currently, line 320 checks `if mode != 'auto': return {'result': 'skipped_rule_changed'}`. This must change.

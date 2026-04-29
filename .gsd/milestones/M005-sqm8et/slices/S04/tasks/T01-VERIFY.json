@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M005-sqm8et/S04/T01",
+  "timestamp": 1777453209042,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "uv run alembic upgrade head",
+      "exitCode": 255,
+      "durationMs": 314,
+      "verdict": "fail"
+    },
+    {
+      "command": "uv run pytest tests/unit/test_s14_migration.py -v (migration applies without error). Run: uv run pytest tests/unit/test_dispatch_github_event.py -v (unit tests: mode=rule match, mode=rule no-match, mode=manual_workflow enqueue, duplicate delivery_id, missing installation). All pass.",
+      "exitCode": 2,
+      "durationMs": 5,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}
