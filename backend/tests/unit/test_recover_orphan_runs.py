@@ -14,6 +14,7 @@ Scenarios covered:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -87,8 +88,12 @@ class TestRecoverOrphanRunsBody:
 
     def test_no_orphans_emits_zero_count_log(self, caplog: pytest.LogCaptureFixture) -> None:
         session = _mock_session(orphans=[], step_runs_per_run={})
-        with patch("app.workflows.tasks.get_datetime_utc", return_value=_utc_now()):
-            count = _recover_orphan_runs_body(session)
+        # MEM016: alembic fileConfig disables existing loggers; re-enable before capture
+        tasks_logger = logging.getLogger("app.workflows.tasks")
+        tasks_logger.disabled = False
+        with caplog.at_level(logging.INFO, logger="app.workflows.tasks"):
+            with patch("app.workflows.tasks.get_datetime_utc", return_value=_utc_now()):
+                count = _recover_orphan_runs_body(session)
 
         assert count == 0
         session.add.assert_not_called()
@@ -110,8 +115,12 @@ class TestRecoverOrphanRunsBody:
             step_runs_per_run={run_a.id: [step_a1], run_b.id: [step_b1]},
         )
 
-        with patch("app.workflows.tasks.get_datetime_utc", return_value=_utc_now()):
-            count = _recover_orphan_runs_body(session)
+        # MEM016: alembic fileConfig disables existing loggers; re-enable before capture
+        tasks_logger = logging.getLogger("app.workflows.tasks")
+        tasks_logger.disabled = False
+        with caplog.at_level(logging.INFO, logger="app.workflows.tasks"):
+            with patch("app.workflows.tasks.get_datetime_utc", return_value=_utc_now()):
+                count = _recover_orphan_runs_body(session)
 
         assert count == 2
 
@@ -144,8 +153,12 @@ class TestRecoverOrphanRunsBody:
 
         session = _mock_session(orphans=[run], step_runs_per_run={run.id: []})
 
-        with patch("app.workflows.tasks.get_datetime_utc", return_value=_utc_now()):
-            count = _recover_orphan_runs_body(session)
+        # MEM016: alembic fileConfig disables existing loggers; re-enable before capture
+        tasks_logger = logging.getLogger("app.workflows.tasks")
+        tasks_logger.disabled = False
+        with caplog.at_level(logging.INFO, logger="app.workflows.tasks"):
+            with patch("app.workflows.tasks.get_datetime_utc", return_value=_utc_now()):
+                count = _recover_orphan_runs_body(session)
 
         assert count == 1
         assert run.status == "failed"
