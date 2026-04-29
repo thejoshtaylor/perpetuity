@@ -24,6 +24,7 @@ dependencies = [
     "cryptography<46.0.0,>=43.0.0",
     "pywebpush<2.0.0,>=1.14.0",
     "redis<8.0.0,>=5.0.0",
+    "celery<6.0.0,>=5.3.0",
 ]
 
 [dependency-groups]

@@ -44,7 +44,7 @@ Assumptions documented inline: (1) `workflow_runs.scope` is omitted — it lives
   - Files: `orchestrator/workspace-image/Dockerfile`, `orchestrator/orchestrator/routes_exec.py`, `orchestrator/orchestrator/main.py`, `orchestrator/tests/integration/test_routes_exec.py`, `backend/app/alembic/versions/s12_seed_direct_workflows.py`, `backend/app/api/workflows_seed.py`, `backend/app/api/routes/teams.py`, `backend/tests/api/test_workflows_seed.py`, `backend/tests/migrations/test_s12_seed_direct_workflows_migration.py`
   - Verify: docker compose build --pull orchestrator && cd orchestrator && uv run pytest tests/integration/test_routes_exec.py -v && cd ../backend && POSTGRES_DB=perpetuity_app uv run pytest tests/api/test_workflows_seed.py tests/migrations/test_s12_seed_direct_workflows_migration.py -v
 
-- [ ] **T03: Celery app + Redis broker + AI executor + run_workflow task** `est:2 days`
+- [x] **T03: Celery app + Redis broker + AI executor + run_workflow task** `est:2 days`
   Stand up the Celery worker spine and the AI executor that S02 proves end-to-end.
 
 (1) `backend/app/core/celery_app.py`: Celery app factory bound to the existing Redis broker. URL composed from `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` env (same pattern as `app/core/rate_limit.py`). Database backend = none (status persisted in Postgres `workflow_runs.status`, not Celery's result backend — Celery's role is task dispatch, not source of truth, per MEM009). Configure `task_acks_late=True` and `task_reject_on_worker_lost=True` so a worker crash mid-task lets Celery requeue (S05 will add the orphan-recovery beat task; S02 ships the Celery-side flag so S05 doesn't have to retroactively change worker config).
