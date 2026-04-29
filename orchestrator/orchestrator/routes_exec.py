@@ -25,11 +25,12 @@ The endpoint:
      involved. The endpoint deliberately does NOT persist the session in
      Redis; the workflow run id is the durable handle (recorded on
      ``workflow_runs`` / ``step_runs`` by the backend).
-  2. Wraps ``cmd`` as ``["script", "-q", "/dev/null", "sh", "-c", "<cmd>"]``
-     so the AI CLIs see a real pty (MEM007 / D012). Inside the ``sh -c``
-     string the original argv is shell-quoted then joined back with spaces;
-     occurrences of ``$VAR`` reference the env dict so secrets only ever
-     live in the env frame, never in the cmd list (MEM274).
+  2. Wraps ``cmd`` as ``["script", "-q", "-c", "<shell-quoted cmd>", "/dev/null"]``
+     so the AI CLIs see a real pty (MEM007 / D012). util-linux ``script(1)``
+     -c invokes the command through ``/bin/sh`` already, so we shell-quote
+     the original argv and join it back with spaces; occurrences of ``$VAR``
+     reference the env dict so secrets only ever live in the env frame,
+     never in the cmd list (MEM274).
   3. Calls a local ``_exec_collect_with_env`` helper modeled after
      ``sessions._exec_collect`` and ``clone._exec_with_env`` — opens the
      exec stream with ``tty=True`` (script -q produces merged stdout/stderr
@@ -145,7 +146,13 @@ class OneShotExecResponse(BaseModel):
 
 
 def _build_script_cmd(cmd: list[str]) -> list[str]:
-    """Wrap a cmd argv as ``script -q /dev/null sh -c '<shell-quoted cmd>'``.
+    """Wrap a cmd argv as ``script -q -c '<shell-quoted cmd>' /dev/null``.
+
+    Uses util-linux ``script(1)`` syntax (Ubuntu 24.04 base image): the
+    command body is passed via ``-c`` and ``/dev/null`` is the typescript
+    output file (we discard it). This shape is required because util-linux
+    does NOT accept the BSD ``script <file> <command>`` form — it would
+    surface ``script: unexpected number of arguments``.
 
     Each entry is shlex-quoted so embedded ``$VAR`` references survive into
     the ``sh -c`` invocation without being interpreted by docker's argv
@@ -164,7 +171,7 @@ def _build_script_cmd(cmd: list[str]) -> list[str]:
     entries that look like a single ``$NAME`` reference. This keeps the
     secret-passing contract simple: the executor sends
     ``["claude", "-p", "$PROMPT"]`` plus ``env={"PROMPT": "..."}``, and
-    the wrapper produces ``script -q /dev/null sh -c 'claude -p "$PROMPT"'``.
+    the wrapper produces ``script -q -c 'claude -p "$PROMPT"' /dev/null``.
     """
     quoted: list[str] = []
     for entry in cmd:
@@ -175,7 +182,13 @@ def _build_script_cmd(cmd: list[str]) -> list[str]:
         else:
             quoted.append(shlex.quote(entry))
     body = " ".join(quoted)
-    return ["script", "-q", "/dev/null", "sh", "-c", body]
+    # script(1) -c runs the command body via the user's shell already
+    # (defaults to /bin/sh), so we don't pre-wrap with sh -c. /dev/null
+    # is the typescript file we discard. -e (--return) makes script
+    # propagate the child's exit code rather than always returning 0
+    # — required so the executor can map cli_nonzero (exit != 0) vs
+    # the happy path.
+    return ["script", "-q", "-e", "-c", body, "/dev/null"]
 
 
 def _is_bare_var_ref(entry: str) -> bool:

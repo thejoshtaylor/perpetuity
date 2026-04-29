@@ -39,14 +39,14 @@ RUN npm install -g \
         "@openai/codex@${CODEX_VERSION}" \
     && npm cache clean --force
 
-# TTY smoke checks: invoke each CLI through the same `script -q /dev/null`
-# wrapper M005's executor uses. If either CLI regresses on TTY discipline
-# (e.g. claude/codex deciding to exit non-zero when stdin is not a tty),
-# the build fails here rather than at runtime inside a Celery task. The
-# `--version` subcommand is stable across both CLIs and does not require
-# network or credentials.
-RUN script -q /dev/null sh -c 'claude --version' \
-    && script -q /dev/null sh -c 'codex --version'
+# TTY smoke checks: invoke each CLI through the same `script -q -c ... /dev/null`
+# wrapper M005's executor uses (util-linux script(1) syntax — Ubuntu 24.04
+# base image). If either CLI regresses on TTY discipline (e.g. claude/codex
+# deciding to exit non-zero when stdin is not a tty), the build fails here
+# rather than at runtime inside a Celery task. The `--version` subcommand
+# is stable across both CLIs and does not require network or credentials.
+RUN script -q -e -c 'claude --version' /dev/null \
+    && script -q -e -c 'codex --version' /dev/null
 
 # Container started with `sleep infinity` from the orchestrator (T03);
 # tmux sessions are launched via `docker exec` per session_id.

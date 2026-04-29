@@ -33,7 +33,7 @@ Assumptions documented inline: (1) `workflow_runs.scope` is omitted — it lives
   - Files: `backend/app/alembic/versions/s10_workflows.py`, `backend/app/alembic/versions/s11_workflow_runs.py`, `backend/app/models.py`, `backend/tests/migrations/test_s10_workflows_migration.py`, `backend/tests/migrations/test_s11_workflow_runs_migration.py`
   - Verify: cd backend && POSTGRES_DB=perpetuity_app uv run pytest tests/migrations/test_s10_workflows_migration.py tests/migrations/test_s11_workflow_runs_migration.py -v
 
-- [ ] **T02: Pin claude/codex CLIs in workspace image + add orchestrator one-shot exec endpoint + auto-seed system workflows** `est:1.5 days`
+- [x] **T02: Pin claude/codex CLIs in workspace image + add orchestrator one-shot exec endpoint + auto-seed system workflows** `est:1.5 days`
   Three deliverables that share a single context: the workspace-image change, the orchestrator HTTP endpoint that runs CLIs inside it, and the data-migration that gives every team `_direct_claude` and `_direct_codex` workflows ready to fire (D028).
 
 (1) `orchestrator/workspace-image/Dockerfile`: install pinned `claude` and `codex` CLIs. The Anthropic CLI is npm-installable as `@anthropic-ai/claude-code`; pin a specific version. The OpenAI Codex CLI is `@openai/codex`; pin a specific version. Add a smoke step that runs `script -q /dev/null sh -c 'claude --version'` and `script -q /dev/null sh -c 'codex --version'` so the build fails if the TTY-wrapped invocation regresses.

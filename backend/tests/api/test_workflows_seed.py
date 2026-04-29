@@ -228,7 +228,7 @@ def test_create_team_with_admin_seeds_workflows(db: Session) -> None:
     # Need a real user as the admin. Reuse the personal-team helper to
     # avoid hand-rolling the User shape.
     user_create = UserCreate(
-        email=f"wf-seed-{uuid.uuid4().hex[:8]}@test.local",
+        email=f"wf-seed-{uuid.uuid4().hex[:8]}@example.com",
         password="password-not-checked-here",
         full_name="Workflow Seed Test",
     )
