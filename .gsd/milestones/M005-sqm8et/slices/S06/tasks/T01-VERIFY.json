@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M005-sqm8et/S06/T01",
+  "timestamp": 1777460822014,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_DB=perpetuity_app uv run pytest -m e2e tests/integration/test_m005_s06_acceptance_e2e.py --collect-only -q",
+      "exitCode": 4,
+      "durationMs": 199,
+      "verdict": "fail"
+    },
+    {
+      "command": "POSTGRES_DB=perpetuity_app uv run pytest -m e2e tests/integration/test_m005_s06_acceptance_e2e.py -v",
+      "exitCode": 4,
+      "durationMs": 145,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

@@ -26,17 +26,6 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: unmapped
 - Notes: Uses `git clone` or `rsync` inside the container.
 
-### R011 — The platform receives GitHub webhooks for push events, pull request events, and tag creation. These events can trigger configured workflows.
-- Class: integration
-- Status: active
-- Description: The platform receives GitHub webhooks for push events, pull request events, and tag creation. These events can trigger configured workflows.
-- Why it matters: Enables automated workflows on code events without manual triggering.
-- Source: user
-- Primary owning slice: M003/S03
-- Supporting slices: M005/S01
-- Validation: unmapped
-- Notes: none
-
 ### R012 — Team admins can configure multiple GitHub connections for their team (organization-level or personal OAuth/PAT). Personal teams use personal GitHub connections.
 - Class: integration
 - Status: active
@@ -47,83 +36,6 @@ This file is the explicit capability and coverage contract for the project.
 - Supporting slices: none
 - Validation: unmapped
 - Notes: System admin can configure system-level defaults.
-
-### R013 — Each user-team pair stores Claude API key encrypted in the database. Workflows and dashboard actions execute `claude` CLI inside the user's team container using the stored key (TTY workaround via `script -q /dev/null`).
-- Class: integration
-- Status: active
-- Description: Each user-team pair stores Claude API key encrypted in the database. Workflows and dashboard actions execute `claude` CLI inside the user's team container using the stored key (TTY workaround via `script -q /dev/null`).
-- Why it matters: AI coding assistance is a primary product feature; per-team isolation prevents credential leakage.
-- Source: user
-- Primary owning slice: M004/S01
-- Supporting slices: M004/S02
-- Validation: unmapped
-- Notes: TTY workaround required; `--dangerously-skip-permissions` flag needed for automated use.
-
-### R014 — Same model as R013 but for OpenAI Codex CLI. Per-team API key, TTY workaround, executed inside user's team container.
-- Class: integration
-- Status: active
-- Description: Same model as R013 but for OpenAI Codex CLI. Per-team API key, TTY workaround, executed inside user's team container.
-- Why it matters: Codex is an alternative AI coding tool users may prefer.
-- Source: user
-- Primary owning slice: M004/S01
-- Supporting slices: M004/S02
-- Validation: unmapped
-- Notes: OpenAI API key stored encrypted per team.
-
-### R015 — Dashboard has prominent Claude Code and Codex action buttons. Both are available as action step types in workflow configuration.
-- Class: primary-user-loop
-- Status: active
-- Description: Dashboard has prominent Claude Code and Codex action buttons. Both are available as action step types in workflow configuration.
-- Why it matters: These are primary AI interactions; they need to be first-class UI elements, not buried in settings.
-- Source: user
-- Primary owning slice: M004/S02
-- Supporting slices: M005/S02
-- Validation: unmapped
-- Notes: Button click → prompt input form → CLI executed in user's current team container → output streamed to terminal.
-
-### R016 — Workflows can be triggered by: dashboard button click (with optional form), GitHub webhook events (push, PR, tag), or admin manual trigger.
-- Class: primary-user-loop
-- Status: active
-- Description: Workflows can be triggered by: dashboard button click (with optional form), GitHub webhook events (push, PR, tag), or admin manual trigger.
-- Why it matters: Flexible automation for different team workflows.
-- Source: user
-- Primary owning slice: M005/S01
-- Supporting slices: M003/S03
-- Validation: unmapped
-- Notes: none
-
-### R017 — Workflow steps execute as Celery tasks. If a step requires a terminal space, the orchestrator acquires (or spins up) a container for the target user-team. Steps without terminal needs run without acquiring a container.
-- Class: core-capability
-- Status: active
-- Description: Workflow steps execute as Celery tasks. If a step requires a terminal space, the orchestrator acquires (or spins up) a container for the target user-team. Steps without terminal needs run without acquiring a container.
-- Why it matters: Decouples workflow execution from container availability; enables async, retryable execution.
-- Source: user
-- Primary owning slice: M005/S02
-- Supporting slices: M002/S02
-- Validation: unmapped
-- Notes: Retry 3x with exponential backoff on container acquisition failure.
-
-### R018 — Every workflow run produces a record with: run ID, trigger type, trigger data, status, timestamps, and an ordered list of step execution records. Each step record stores: config snapshot, status, stdout, stderr, duration, exit code. UI shows run history with drilldown.
-- Class: failure-visibility
-- Status: active
-- Description: Every workflow run produces a record with: run ID, trigger type, trigger data, status, timestamps, and an ordered list of step execution records. Each step record stores: config snapshot, status, stdout, stderr, duration, exit code. UI shows run history with drilldown.
-- Why it matters: Debugging failed runs requires full step-level detail, not just a pass/fail.
-- Source: user
-- Primary owning slice: M005/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: none
-
-### R020 — Dashboard shows configurable workflow trigger buttons. Each button can optionally present a form to collect user input before the workflow executes. Form data is passed as variables to workflow steps.
-- Class: primary-user-loop
-- Status: active
-- Description: Dashboard shows configurable workflow trigger buttons. Each button can optionally present a form to collect user input before the workflow executes. Form data is passed as variables to workflow steps.
-- Why it matters: Users frequently need to provide parameters (branch name, PR number, message) before a workflow runs.
-- Source: user
-- Primary owning slice: M005/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Buttons are configurable per user within their teams.
 
 ### R042 — Pty sessions outlive WebSocket connections via tmux-inside-container; reattach to a running session restores ≥100KB scrollback and survives orchestrator restart.
 - Class: core-capability
@@ -254,6 +166,83 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: Validated end-to-end by `backend/tests/integration/test_m002_s04_e2e.py::test_m002_s04_full_demo`: alice opens two distinct WS sessions for her personal team — both POST /api/v1/sessions calls hit the SAME (user, team) container (orchestrator response.created==True for the first, False for the second per MEM120) but each session is a distinct tmux session attached via `docker exec` and `tmux attach-session -t <session_id>`. The test writes a marker through sid_a (`echo 'a' > /workspaces/<team_id>/marker.txt`) and reads it back through sid_b (`cat /workspaces/<team_id>/marker.txt` returns 'a' in the data-frame stream) — proving distinct tmux sessions but shared container filesystem. GET /api/v1/sessions returns set {sid_a, sid_b}. DELETE one leaves the sibling AND the container alive. The orchestrator-side AttachMap (S04/T01) tracks per-session live-attach counts via `register`/`unregister` calls in `routes_ws.py::session_stream`, observable through `attach_registered`/`attach_unregistered` log lines (UUIDs only).
 - Notes: Multiple containers share a single mounted volume per user-team.
 
+### R011 — The platform receives GitHub webhooks for push events, pull request events, and tag creation. These events can trigger configured workflows.
+- Class: integration
+- Status: validated
+- Description: The platform receives GitHub webhooks for push events, pull request events, and tag creation. These events can trigger configured workflows.
+- Why it matters: Enables automated workflows on code events without manual triggering.
+- Source: user
+- Primary owning slice: M003/S03
+- Supporting slices: M005/S01
+- Validation: dispatch_github_event fully implemented in backend/app/services/dispatch.py (S04). HMAC verification (M004) → installation lookup → per-project push rule evaluation → mode=rule fnmatch + mode=manual_workflow Celery enqueue. webhook_delivery_id UNIQUE constraint enforces idempotency. S06 test 3 proves webhook→dispatch→run chain with synthesized HMAC-signed PR event. 7 e2e tests in test_m005_s04_webhook_dispatch_e2e.py cover all dispatch paths.
+- Notes: none
+
+### R013 — Each user-team pair stores Claude API key encrypted in the database. Workflows and dashboard actions execute `claude` CLI inside the user's team container using the stored key (TTY workaround via `script -q /dev/null`).
+- Class: integration
+- Status: validated
+- Description: Each user-team pair stores Claude API key encrypted in the database. Workflows and dashboard actions execute `claude` CLI inside the user's team container using the stored key (TTY workaround via `script -q /dev/null`).
+- Why it matters: AI coding assistance is a primary product feature; per-team isolation prevents credential leakage.
+- Source: user
+- Primary owning slice: M004/S01
+- Supporting slices: M004/S02
+- Validation: Per-team claude_api_key stored Fernet-encrypted (S01). AI executor in backend/app/workflows/executors/ai.py reads key via get_team_secret(), passes via env dict only (MEM274 secret discipline). util-linux `script -q -e -c` TTY wrapper in orchestrator/orchestrator/routes_exec.py. Pinned @anthropic-ai/claude-code@1.0.30 in workspace image with TTY smoke check. S06 test 1 proves real claude CLI execution inside workspace container. Missing-key → error_class='missing_team_secret'.
+- Notes: TTY workaround required; `--dangerously-skip-permissions` flag needed for automated use.
+
+### R014 — Same model as R013 but for OpenAI Codex CLI. Per-team API key, TTY workaround, executed inside user's team container.
+- Class: integration
+- Status: validated
+- Description: Same model as R013 but for OpenAI Codex CLI. Per-team API key, TTY workaround, executed inside user's team container.
+- Why it matters: Codex is an alternative AI coding tool users may prefer.
+- Source: user
+- Primary owning slice: M004/S01
+- Supporting slices: M004/S02
+- Validation: Per-team openai_api_key stored Fernet-encrypted (S01). AI executor handles codex action identically to claude (env-only key passing, TTY wrapper). Pinned @openai/codex@0.20.0 in workspace image with TTY smoke check. S06 test 1 proves real codex CLI execution. Missing-key → error_class='missing_team_secret'.
+- Notes: OpenAI API key stored encrypted per team.
+
+### R015 — Dashboard has prominent Claude Code and Codex action buttons. Both are available as action step types in workflow configuration.
+- Class: primary-user-loop
+- Status: validated
+- Description: Dashboard has prominent Claude Code and Codex action buttons. Both are available as action step types in workflow configuration.
+- Why it matters: These are primary AI interactions; they need to be first-class UI elements, not buried in settings.
+- Source: user
+- Primary owning slice: M004/S02
+- Supporting slices: M005/S02
+- Validation: DirectAIButtons component on /teams/{id} dashboard (S02). Custom workflow trigger buttons via CustomWorkflowButtons (S03). claude and codex are first-class step types in WorkflowAction enum. S06 test 1 proves dashboard button → real Anthropic/OpenAI response end-to-end.
+- Notes: Button click → prompt input form → CLI executed in user's current team container → output streamed to terminal.
+
+### R016 — Workflows can be triggered by: dashboard button click (with optional form), GitHub webhook events (push, PR, tag), or admin manual trigger.
+- Class: primary-user-loop
+- Status: validated
+- Description: Workflows can be triggered by: dashboard button click (with optional form), GitHub webhook events (push, PR, tag), or admin manual trigger.
+- Why it matters: Flexible automation for different team workflows.
+- Source: user
+- Primary owning slice: M005/S01
+- Supporting slices: M003/S03
+- Validation: Three trigger sources all implemented: (1) dashboard button+form via POST /api/v1/workflows/{id}/run (S02/S03); (2) GitHub webhook via dispatch_github_event mode=manual_workflow (S04); (3) admin manual via POST /api/v1/admin/workflows/{id}/trigger (S05). All produce WorkflowRun rows with trigger_type discriminator and appear in run history.
+- Notes: none
+
+### R017 — Workflow steps execute as Celery tasks. If a step requires a terminal space, the orchestrator acquires (or spins up) a container for the target user-team. Steps without terminal needs run without acquiring a container.
+- Class: core-capability
+- Status: validated
+- Description: Workflow steps execute as Celery tasks. If a step requires a terminal space, the orchestrator acquires (or spins up) a container for the target user-team. Steps without terminal needs run without acquiring a container.
+- Why it matters: Decouples workflow execution from container availability; enables async, retryable execution.
+- Source: user
+- Primary owning slice: M005/S02
+- Supporting slices: M002/S02
+- Validation: run_workflow Celery task in backend/app/workflows/tasks.py executes steps sequentially. Container acquired via deterministic UUID5 session_id per (user,team,run) → orchestrator provision_container. 3x exponential retry via _orchestrator_exec_with_retry (S03). Cancellation watchpoint between steps (S03). Worker crash recovery via recover_orphan_runs Beat task every 600s (S05). S06 tests 1/2/4 prove container acquisition with real CLIs.
+- Notes: Retry 3x with exponential backoff on container acquisition failure.
+
+### R018 — Every workflow run produces a record with: run ID, trigger type, trigger data, status, timestamps, and an ordered list of step execution records. Each step record stores: config snapshot, status, stdout, stderr, duration, exit code. UI shows run history with drilldown.
+- Class: failure-visibility
+- Status: validated
+- Description: Every workflow run produces a record with: run ID, trigger type, trigger data, status, timestamps, and an ordered list of step execution records. Each step record stores: config snapshot, status, stdout, stderr, duration, exit code. UI shows run history with drilldown.
+- Why it matters: Debugging failed runs requires full step-level detail, not just a pass/fail.
+- Source: user
+- Primary owning slice: M005/S02
+- Supporting slices: none
+- Validation: workflow_runs + step_runs tables (S02). step_runs.snapshot = JSONB frozen at dispatch time (R018 forever-debuggable). Per-step stdout/stderr/exit_code/duration_ms persisted. Run history list at GET /api/v1/teams/{id}/runs with status/trigger_type/time filters (S05). Drill-down at /runs/$runId with 1.5s polling (S02) and /runs list page (S05). S05 e2e test verifies snapshot semantics for deleted-workflow runs. S06 test 4 verifies all four step metadata fields present.
+- Notes: none
+
 ### R019 — Workflows can be scoped to a user (runs in their terminal space) or a team (round-robin or specified user selected for terminal-requiring steps). User-scoped workflows always use the triggering user's space.
 - Class: core-capability
 - Status: validated
@@ -264,6 +253,17 @@ This file is the explicit capability and coverage contract for the project.
 - Supporting slices: none
 - Validation: WorkflowScope enum (user/team_specific/round_robin) implemented in backend/app/models.py. resolve_target_user() service in backend/app/services/workflow_dispatch.py handles all three scope variants with atomic round_robin cursor (UPDATE...RETURNING), membership validation (TargetUserNoMembershipError→409), and offline fallback. 11 pytest tests in backend/tests/api/test_workflow_dispatch_service.py cover all paths including cursor wrap, all-offline fallback, and partial-offline skip. Validated in M005/S03.
 - Notes: Round-robin selection is for team workflows only.
+
+### R020 — Dashboard shows configurable workflow trigger buttons. Each button can optionally present a form to collect user input before the workflow executes. Form data is passed as variables to workflow steps.
+- Class: primary-user-loop
+- Status: validated
+- Description: Dashboard shows configurable workflow trigger buttons. Each button can optionally present a form to collect user input before the workflow executes. Form data is passed as variables to workflow steps.
+- Why it matters: Users frequently need to provide parameters (branch name, PR number, message) before a workflow runs.
+- Source: user
+- Primary owning slice: M005/S01
+- Supporting slices: none
+- Validation: form_schema JSONB column on workflows (S03 s13 migration). WorkflowFormDialog on frontend presents form fields before dispatch. trigger_payload carries form values; substitution engine resolves {form.<field>} in step configs. Required-field validation at API boundary (400 missing_required_field). S06 test 2 proves {branch} form field → git checkout step substitution against real repo.
+- Notes: Buttons are configurable per user within their teams.
 
 ### R021 — Frontend ships with a valid Web App Manifest and service worker. Users can install the app on their phone or desktop home screen.
 - Class: launchability
@@ -382,16 +382,16 @@ This file is the explicit capability and coverage contract for the project.
 | R008 | primary-user-loop | validated | M002/S01 | M002/S04 | Validated end-to-end by `backend/tests/integration/test_m002_s04_e2e.py::test_m002_s04_full_demo`: alice opens two distinct WS sessions for her personal team — both POST /api/v1/sessions calls hit the SAME (user, team) container (orchestrator response.created==True for the first, False for the second per MEM120) but each session is a distinct tmux session attached via `docker exec` and `tmux attach-session -t <session_id>`. The test writes a marker through sid_a (`echo 'a' > /workspaces/<team_id>/marker.txt`) and reads it back through sid_b (`cat /workspaces/<team_id>/marker.txt` returns 'a' in the data-frame stream) — proving distinct tmux sessions but shared container filesystem. GET /api/v1/sessions returns set {sid_a, sid_b}. DELETE one leaves the sibling AND the container alive. The orchestrator-side AttachMap (S04/T01) tracks per-session live-attach counts via `register`/`unregister` calls in `routes_ws.py::session_stream`, observable through `attach_registered`/`attach_unregistered` log lines (UUIDs only). |
 | R009 | primary-user-loop | active | M003/S01 | none | unmapped |
 | R010 | primary-user-loop | active | M003/S02 | none | unmapped |
-| R011 | integration | active | M003/S03 | M005/S01 | unmapped |
+| R011 | integration | validated | M003/S03 | M005/S01 | dispatch_github_event fully implemented in backend/app/services/dispatch.py (S04). HMAC verification (M004) → installation lookup → per-project push rule evaluation → mode=rule fnmatch + mode=manual_workflow Celery enqueue. webhook_delivery_id UNIQUE constraint enforces idempotency. S06 test 3 proves webhook→dispatch→run chain with synthesized HMAC-signed PR event. 7 e2e tests in test_m005_s04_webhook_dispatch_e2e.py cover all dispatch paths. |
 | R012 | integration | active | M003/S01 | none | unmapped |
-| R013 | integration | active | M004/S01 | M004/S02 | unmapped |
-| R014 | integration | active | M004/S01 | M004/S02 | unmapped |
-| R015 | primary-user-loop | active | M004/S02 | M005/S02 | unmapped |
-| R016 | primary-user-loop | active | M005/S01 | M003/S03 | unmapped |
-| R017 | core-capability | active | M005/S02 | M002/S02 | unmapped |
-| R018 | failure-visibility | active | M005/S02 | none | unmapped |
+| R013 | integration | validated | M004/S01 | M004/S02 | Per-team claude_api_key stored Fernet-encrypted (S01). AI executor in backend/app/workflows/executors/ai.py reads key via get_team_secret(), passes via env dict only (MEM274 secret discipline). util-linux `script -q -e -c` TTY wrapper in orchestrator/orchestrator/routes_exec.py. Pinned @anthropic-ai/claude-code@1.0.30 in workspace image with TTY smoke check. S06 test 1 proves real claude CLI execution inside workspace container. Missing-key → error_class='missing_team_secret'. |
+| R014 | integration | validated | M004/S01 | M004/S02 | Per-team openai_api_key stored Fernet-encrypted (S01). AI executor handles codex action identically to claude (env-only key passing, TTY wrapper). Pinned @openai/codex@0.20.0 in workspace image with TTY smoke check. S06 test 1 proves real codex CLI execution. Missing-key → error_class='missing_team_secret'. |
+| R015 | primary-user-loop | validated | M004/S02 | M005/S02 | DirectAIButtons component on /teams/{id} dashboard (S02). Custom workflow trigger buttons via CustomWorkflowButtons (S03). claude and codex are first-class step types in WorkflowAction enum. S06 test 1 proves dashboard button → real Anthropic/OpenAI response end-to-end. |
+| R016 | primary-user-loop | validated | M005/S01 | M003/S03 | Three trigger sources all implemented: (1) dashboard button+form via POST /api/v1/workflows/{id}/run (S02/S03); (2) GitHub webhook via dispatch_github_event mode=manual_workflow (S04); (3) admin manual via POST /api/v1/admin/workflows/{id}/trigger (S05). All produce WorkflowRun rows with trigger_type discriminator and appear in run history. |
+| R017 | core-capability | validated | M005/S02 | M002/S02 | run_workflow Celery task in backend/app/workflows/tasks.py executes steps sequentially. Container acquired via deterministic UUID5 session_id per (user,team,run) → orchestrator provision_container. 3x exponential retry via _orchestrator_exec_with_retry (S03). Cancellation watchpoint between steps (S03). Worker crash recovery via recover_orphan_runs Beat task every 600s (S05). S06 tests 1/2/4 prove container acquisition with real CLIs. |
+| R018 | failure-visibility | validated | M005/S02 | none | workflow_runs + step_runs tables (S02). step_runs.snapshot = JSONB frozen at dispatch time (R018 forever-debuggable). Per-step stdout/stderr/exit_code/duration_ms persisted. Run history list at GET /api/v1/teams/{id}/runs with status/trigger_type/time filters (S05). Drill-down at /runs/$runId with 1.5s polling (S02) and /runs list page (S05). S05 e2e test verifies snapshot semantics for deleted-workflow runs. S06 test 4 verifies all four step metadata fields present. |
 | R019 | core-capability | validated | M005/S03 | none | WorkflowScope enum (user/team_specific/round_robin) implemented in backend/app/models.py. resolve_target_user() service in backend/app/services/workflow_dispatch.py handles all three scope variants with atomic round_robin cursor (UPDATE...RETURNING), membership validation (TargetUserNoMembershipError→409), and offline fallback. 11 pytest tests in backend/tests/api/test_workflow_dispatch_service.py cover all paths including cursor wrap, all-offline fallback, and partial-offline skip. Validated in M005/S03. |
-| R020 | primary-user-loop | active | M005/S01 | none | unmapped |
+| R020 | primary-user-loop | validated | M005/S01 | none | form_schema JSONB column on workflows (S03 s13 migration). WorkflowFormDialog on frontend presents form fields before dispatch. trigger_payload carries form values; substitution engine resolves {form.<field>} in step configs. Required-field validation at API boundary (400 missing_required_field). S06 test 2 proves {branch} form field → git checkout step substitution against real repo. |
 | R021 | launchability | validated | M005-oaptsz/S01 | none | S01 delivered vite-plugin-pwa injectManifest with route-classified service worker (NetworkOnly /api/* and /ws/*, CacheFirst hashed assets, precache app shell), Web App Manifest + 192/512/maskable/180 icons, InstallBanner (Android beforeinstallprompt + iOS one-time toast) and OfflineBanner mounted in _layout. SW NetworkOnly contract proven by m005-oaptsz-sw-bypass.spec.ts (1/1 pass) using context.route() at BrowserContext level. Lighthouse install criteria satisfied; production preview at :4173 launches standalone. |
 | R022 | quality-attribute | validated | M005-oaptsz/S01 | M005-oaptsz/S02, M005-oaptsz/S03, M005-oaptsz/S04 | S01 four-project Playwright matrix (chromium, mobile-chrome Pixel-5, iphone-13-mobile-safari, desktop-firefox) walks 7 routes × assertNoHorizontalScroll + assertTouchTargets + 1% visual-diff. Design-system-primitive-floor (min-h-11/min-w-11) on Button, Input, PasswordInput, Tabs, SidebarTrigger inherits ≥44×44 to all consumers. S02 bell, S03 push prompt, S04 mic button all pass the same gate. 30/30 mobile-chrome+iphone-13 audit on S01; 16/16 with bell on S02; 15/17 on S04 (2 pre-existing /admin/teams chevron at 32×44px documented as MEM369). |
 | R023 | primary-user-loop | validated | M005-oaptsz/S02 | M005-oaptsz/S03 | S02 shipped notifications + notification_preferences tables, notify() helper with payload redaction and preference resolution, REST routes (list, mark-read, mark-all-read, preferences upsert), NotificationBell + Panel mounted in _layout with 5s polling refetchInterval. Cross-device sync proven by Playwright Scenario A (two BrowserContexts as same user, badge clears in second within 6s). 24/24 backend + 4/4 Playwright pass. S03 added Web Push: push_subscriptions table (s08), pywebpush dispatcher with VAPID signing, HTTP 410 immediate prune, 5xx after-5-consecutive prune, SW push/notificationclick handlers, PushPermissionPrompt. 41 push tests pass; real-device round-trip deferred to S05 operator UAT (S05-CHECKLIST.md). |
@@ -408,7 +408,7 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 15
-- Mapped to slices: 15
-- Validated: 14 (R001, R002, R003, R004, R005, R006, R007, R008, R019, R021, R022, R023, R024, R025)
+- Active requirements: 7
+- Mapped to slices: 7
+- Validated: 22 (R001, R002, R003, R004, R005, R006, R007, R008, R011, R013, R014, R015, R016, R017, R018, R019, R020, R021, R022, R023, R024, R025)
 - Unmapped active requirements: 0
