@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M005-sqm8et/S03/T05",
+  "timestamp": 1777451558405,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd /Users/josh/code/perpetuity/frontend",
+      "exitCode": 0,
+      "durationMs": 8,
+      "verdict": "pass"
+    },
+    {
+      "command": "bunx tsc -p tsconfig.build.json --noEmit",
+      "exitCode": 1,
+      "durationMs": 85,
+      "verdict": "fail"
+    },
+    {
+      "command": "bunx playwright test --project=chromium tests/components/CustomWorkflowButtons.spec.ts tests/routes/WorkflowsList.spec.ts tests/routes/WorkflowEditor.spec.ts tests/components/RunCancelButton.spec.ts",
+      "exitCode": 1,
+      "durationMs": 568,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}
