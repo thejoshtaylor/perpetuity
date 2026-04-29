@@ -273,6 +273,45 @@ services:
       - SYSTEM_SETTINGS_ENCRYPTION_KEY=${SYSTEM_SETTINGS_ENCRYPTION_KEY?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN}
 
+  # M005/S05/T03: Celery Beat scheduler that fires the recover_orphan_runs
+  # task every 10 minutes. Same image as celery-worker — no separate build
+  # needed. The --schedule path uses /tmp so it doesn't require a persistent
+  # volume; Beat restarts cleanly on container restart.
+  celery-beat:
+    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    restart: always
+    networks:
+      - default
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+      prestart:
+        condition: service_completed_successfully
+    command: celery -A app.core.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}
+      - SECRET_KEY=${SECRET_KEY?Variable not set}
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD?Variable not set}
+      - ORCHESTRATOR_BASE_URL=${ORCHESTRATOR_BASE_URL-http://orchestrator:8001}
+      - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
+      - SYSTEM_SETTINGS_ENCRYPTION_KEY=${SYSTEM_SETTINGS_ENCRYPTION_KEY?Variable not set}
+      - SENTRY_DSN=${SENTRY_DSN}
+
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
     restart: always

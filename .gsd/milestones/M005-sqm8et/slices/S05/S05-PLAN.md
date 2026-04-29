@@ -54,7 +54,7 @@ Why/Files/Do/Verify/Done-when:
   - Files: `backend/app/services/workflow_dispatch.py`, `backend/app/api/routes/workflows.py`, `backend/tests/unit/test_workflow_cap_enforcement.py`
   - Verify: cd backend && uv run pytest tests/unit/test_workflow_cap_enforcement.py -v
 
-- [ ] **T03: recover_orphan_runs Beat task + celery-beat compose service** `est:60m`
+- [x] **T03: recover_orphan_runs Beat task + celery-beat compose service** `est:60m`
   Add the recover_orphan_runs Celery Beat task to backend/app/workflows/tasks.py and wire it into the Celery beat_schedule in backend/app/core/celery_app.py. Add the celery-beat service to docker-compose.yml.
 
 Orphan definition: WorkflowRun with status='running' and last_heartbeat_at < now()-15min (or last_heartbeat_at IS NULL and created_at < now()-15min). These are runs whose Celery worker died mid-execution without updating status. The task: SELECT all orphan runs, for each: set status='failed', error_class='worker_crash', completed_at=now(), then for any step_runs in status='running' or 'pending' belonging to the orphan run: set status='failed', error_class='worker_crash'. Emit workflow_run_orphan_recovered (INFO) per run and recover_orphan_runs_sweep (INFO) summary with count.

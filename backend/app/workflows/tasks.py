@@ -41,9 +41,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import timedelta
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.celery_app import celery_app
 from app.core.db import engine
@@ -360,6 +361,88 @@ def _drive_run(session: Session, run_id: uuid.UUID) -> None:
         workflow_run.id,
         duration_ms,
     )
+
+
+_ORPHAN_HEARTBEAT_THRESHOLD = timedelta(minutes=15)
+
+
+def _recover_orphan_runs_body(session: Session) -> int:
+    """Core logic for recover_orphan_runs — separated for testability.
+
+    Returns the count of recovered orphan runs.
+    """
+    cutoff = get_datetime_utc() - _ORPHAN_HEARTBEAT_THRESHOLD
+
+    # Orphan definition: status='running' and either
+    #   (a) last_heartbeat_at is not null and < cutoff, or
+    #   (b) last_heartbeat_at is null and created_at < cutoff
+    orphans = list(
+        session.exec(
+            select(WorkflowRun).where(
+                col(WorkflowRun.status) == "running",
+                (
+                    (
+                        col(WorkflowRun.last_heartbeat_at).isnot(None)
+                        & (col(WorkflowRun.last_heartbeat_at) < cutoff)
+                    )
+                    | (
+                        col(WorkflowRun.last_heartbeat_at).is_(None)
+                        & (col(WorkflowRun.created_at) < cutoff)
+                    )
+                ),
+            )
+        ).all()
+    )
+
+    now = get_datetime_utc()
+    for run in orphans:
+        stuck_since = run.last_heartbeat_at or run.created_at
+        run.status = "failed"
+        run.error_class = "worker_crash"
+        run.finished_at = now
+        session.add(run)
+
+        # Mark all running or pending step_runs for this orphan as failed.
+        orphan_steps = list(
+            session.exec(
+                select(StepRun).where(
+                    col(StepRun.workflow_run_id) == run.id,
+                    col(StepRun.status).in_(["running", "pending"]),
+                )
+            ).all()
+        )
+        for step_run in orphan_steps:
+            step_run.status = "failed"
+            step_run.error_class = "worker_crash"
+            step_run.finished_at = now
+            session.add(step_run)
+
+        session.commit()
+        logger.info(
+            "workflow_run_orphan_recovered run_id=%s workflow_id=%s stuck_since=%s",
+            run.id,
+            run.workflow_id,
+            stuck_since,
+        )
+
+    logger.info(
+        "recover_orphan_runs_sweep orphan_count=%d",
+        len(orphans),
+    )
+    return len(orphans)
+
+
+@celery_app.task(name="app.workflows.recover_orphan_runs")
+def recover_orphan_runs() -> None:
+    """Celery Beat task: mark stale running WorkflowRuns as failed.
+
+    Runs every 10 minutes. Any run stuck in status='running' for more than
+    15 minutes without a heartbeat update is considered orphaned (the worker
+    died mid-execution). We fail those runs so cap enforcement doesn't
+    double-count them and the run list doesn't show phantom running state.
+    """
+    with Session(engine) as session:
+        _recover_orphan_runs_body(session)
 
 
 @celery_app.task(

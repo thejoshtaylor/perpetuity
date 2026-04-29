@@ -79,4 +79,12 @@ celery_app.conf.update(
     # by an orchestrator HTTP call, not Redis round-trips — fairness and
     # fast crash-recovery beat throughput here.
     worker_prefetch_multiplier=1,
+    # S05/T03: Beat schedule for orphan-run recovery. Runs every 10 minutes
+    # to fail WorkflowRuns whose Celery worker died without updating status.
+    beat_schedule={
+        "recover-orphan-runs": {
+            "task": "app.workflows.recover_orphan_runs",
+            "schedule": 600,  # 10 minutes in seconds
+        },
+    },
 )
