@@ -1,4 +1,4 @@
-"""Target-user resolution for workflow dispatch.
+"""Target-user resolution and operational cap enforcement for workflow dispatch.
 
 Invoked at the API boundary (T04) BEFORE a WorkflowRun row is inserted, so
 the resolved target_user_id is known at row-create time.
@@ -9,6 +9,11 @@ Scope semantics:
   round_robin   → cursor-based pick among live team members with workspace
                   fallback to triggering user when no member has a live
                   workspace provisioned within the last 7 days.
+
+Cap enforcement (T02):
+  Before enqueueing, _check_workflow_caps verifies that max_concurrent_runs
+  and max_runs_per_hour are not exceeded. Raises WorkflowCapExceededError
+  when a cap is hit; the caller inserts a rejected audit row and returns 429.
 """
 
 from __future__ import annotations
@@ -17,9 +22,9 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlmodel import Session, select, text
+from sqlmodel import Session, col, func, select, text
 
-from app.models import TeamMember, WorkflowScope
+from app.models import TeamMember, WorkflowRun, WorkflowRunStatus, WorkflowScope
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,88 @@ class TargetUserNoMembershipError(Exception):
             f"target_user_no_membership workflow_id={workflow_id} "
             f"target_user_id={target_user_id}"
         )
+
+
+class WorkflowCapExceededError(Exception):
+    """Raised when a workflow's concurrent or hourly run cap is exceeded."""
+
+    def __init__(
+        self,
+        workflow_id: uuid.UUID,
+        cap_type: str,
+        current_count: int,
+        limit: int,
+    ) -> None:
+        self.workflow_id = workflow_id
+        self.cap_type = cap_type
+        self.current_count = current_count
+        self.limit = limit
+        super().__init__(
+            f"workflow_cap_exceeded workflow_id={workflow_id} "
+            f"cap_type={cap_type} current_count={current_count} limit={limit}"
+        )
+
+
+def _check_workflow_caps(session: Session, workflow) -> None:  # workflow: app.models.Workflow
+    """Check concurrent and hourly run caps before allowing dispatch.
+
+    Uses the composite index (workflow_id, status, created_at DESC) added in
+    the s15 migration for efficient counting. Both checks are no-ops when the
+    corresponding cap field is None.
+
+    Raises:
+        WorkflowCapExceededError: if either cap is exceeded.
+    """
+    workflow_id = workflow.id
+
+    # Concurrent cap: count active (pending + running) runs for this workflow
+    if workflow.max_concurrent_runs is not None:
+        active_count = session.exec(
+            select(func.count()).select_from(WorkflowRun).where(
+                WorkflowRun.workflow_id == workflow_id,
+                col(WorkflowRun.status).in_(
+                    [WorkflowRunStatus.pending.value, WorkflowRunStatus.running.value]
+                ),
+            )
+        ).one()
+        if active_count >= workflow.max_concurrent_runs:
+            logger.info(
+                "workflow_cap_exceeded workflow_id=%s cap_type=concurrent "
+                "current_count=%d limit=%d",
+                workflow_id,
+                active_count,
+                workflow.max_concurrent_runs,
+            )
+            raise WorkflowCapExceededError(
+                workflow_id=workflow_id,
+                cap_type="concurrent",
+                current_count=active_count,
+                limit=workflow.max_concurrent_runs,
+            )
+
+    # Hourly cap: count all runs created in the past hour for this workflow
+    if workflow.max_runs_per_hour is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        hourly_count = session.exec(
+            select(func.count()).select_from(WorkflowRun).where(
+                WorkflowRun.workflow_id == workflow_id,
+                WorkflowRun.created_at >= cutoff,
+            )
+        ).one()
+        if hourly_count >= workflow.max_runs_per_hour:
+            logger.info(
+                "workflow_cap_exceeded workflow_id=%s cap_type=hourly "
+                "current_count=%d limit=%d",
+                workflow_id,
+                hourly_count,
+                workflow.max_runs_per_hour,
+            )
+            raise WorkflowCapExceededError(
+                workflow_id=workflow_id,
+                cap_type="hourly",
+                current_count=hourly_count,
+                limit=workflow.max_runs_per_hour,
+            )
 
 
 def _is_member(session: Session, user_id: uuid.UUID, team_id: uuid.UUID) -> bool:

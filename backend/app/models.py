@@ -1306,6 +1306,7 @@ class WorkflowRunStatus(str, enum.Enum):
     succeeded = "succeeded"
     failed = "failed"
     cancelled = "cancelled"
+    rejected = "rejected"
 
 
 class StepRunStatus(str, enum.Enum):
@@ -1326,7 +1327,7 @@ class WorkflowRun(SQLModel, table=True):
         ),
         CheckConstraint(
             "status IN ('pending', 'running', 'succeeded', 'failed', "
-            "'cancelled')",
+            "'cancelled', 'rejected')",
             name="ck_workflow_runs_status",
         ),
     )

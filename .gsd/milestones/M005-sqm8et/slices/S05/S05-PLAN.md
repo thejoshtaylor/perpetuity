@@ -40,7 +40,7 @@ Why/Files/Do/Verify/Done-when:
   - Files: `backend/app/alembic/versions/s15_workflow_operational_caps.py`, `backend/app/models.py`, `backend/app/api/routes/workflows.py`, `backend/app/api/routes/workflows_crud.py`, `backend/app/api/main.py`
   - Verify: cd backend && uv run pytest tests/unit/test_s15_migration.py tests/unit/test_run_history_endpoint.py tests/unit/test_admin_trigger_endpoint.py -v
 
-- [ ] **T02: Operational cap enforcement in workflow_dispatch.py** `est:60m`
+- [x] **T02: Operational cap enforcement in workflow_dispatch.py** `est:60m`
   Implement max_concurrent_runs and max_runs_per_hour enforcement in backend/app/services/workflow_dispatch.py. Before enqueuing a run, check: (1) count of WorkflowRun rows for this workflow_id with status IN ('pending','running') — if >= max_concurrent_runs, raise WorkflowCapExceededError('concurrent'); (2) count of WorkflowRun rows for this workflow_id with created_at >= now()-1h — if >= max_runs_per_hour, raise WorkflowCapExceededError('hourly'). Both checks only fire when the cap field is non-None. The caller (dispatch route in workflows.py) catches WorkflowCapExceededError and returns HTTP 429 with body {detail: 'workflow_cap_exceeded', cap_type: 'concurrent'|'hourly', current_count: N, limit: M} and writes a structured log line workflow_cap_exceeded. An audit WorkflowRun row with status='rejected' and error_class='cap_exceeded' is inserted before raising so the rejection appears in run history.
 
 The two count queries must be efficient — use the composite index added in T01's migration: (workflow_id, status, created_at DESC).

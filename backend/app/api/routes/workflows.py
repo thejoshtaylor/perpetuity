@@ -66,7 +66,12 @@ from app.models import (
     WorkflowsPublic,
     get_datetime_utc,
 )
-from app.services.workflow_dispatch import TargetUserNoMembershipError, resolve_target_user
+from app.services.workflow_dispatch import (
+    TargetUserNoMembershipError,
+    WorkflowCapExceededError,
+    _check_workflow_caps,
+    resolve_target_user,
+)
 
 SystemAdminUser = Annotated[Any, Depends(get_current_active_superuser)]
 
@@ -179,6 +184,35 @@ def dispatch_workflow_run(
                             "field": field.name,
                         },
                     )
+
+    # Operational caps (T02): check concurrent/hourly limits before creating the
+    # run row. On a cap hit, insert a rejected audit row so the rejection appears
+    # in run history, then return 429.
+    try:
+        _check_workflow_caps(session, workflow)
+    except WorkflowCapExceededError as exc:
+        audit_run = WorkflowRun(
+            workflow_id=workflow.id,
+            team_id=workflow.team_id,
+            trigger_type=WorkflowRunTriggerType.button.value,
+            triggered_by_user_id=current_user.id,
+            target_user_id=None,
+            trigger_payload=dict(body.trigger_payload or {}),
+            status=WorkflowRunStatus.rejected.value,
+            error_class="cap_exceeded",
+            finished_at=get_datetime_utc(),
+        )
+        session.add(audit_run)
+        session.commit()
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "detail": "workflow_cap_exceeded",
+                "cap_type": exc.cap_type,
+                "current_count": exc.current_count,
+                "limit": exc.limit,
+            },
+        ) from exc
 
     # Resolve target user via dispatch service (S03 scope semantics).
     try:
