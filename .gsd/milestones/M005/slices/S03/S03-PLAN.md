@@ -26,7 +26,7 @@ S02 shipped workflow_runs + step_runs schema and run engine; S03 adds the CRUD m
   - Files: `backend/app/models.py`, `backend/alembic/versions/s13_workflow_crud_extensions.py`, `backend/tests/api/test_s13_workflow_crud_extensions_migration.py`
   - Verify: cd backend && python -m pytest tests/api/test_s13_workflow_crud_extensions_migration.py -x -q
 
-- [ ] **T02: Extend models + DTOs for CRUD fields and scope routing** `est:45m`
+- [x] **T02: Extend models + DTOs for CRUD fields and scope routing** `est:45m`
   Add form_schema (JSONB), target_user_id, round_robin_cursor, WorkflowScope routing fields to Workflow model. Add target_container to WorkflowStep. Add cancelled_by_user_id + cancelled_at to WorkflowRun. Add corresponding Pydantic DTOs: WorkflowCreate, WorkflowUpdate, WorkflowWithStepsPublic, WorkflowFormFieldKind.
   - Files: `backend/app/models.py`, `backend/app/schemas.py`
   - Verify: cd backend && python -c 'from app.models import Workflow, WorkflowStep, WorkflowRun; from app.schemas import WorkflowCreate, WorkflowWithStepsPublic'
