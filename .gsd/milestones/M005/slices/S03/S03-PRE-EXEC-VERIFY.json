@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "M005",
+  "sliceId": "S03",
+  "timestamp": 1777443499859,
+  "status": "fail",
+  "durationMs": 1,
+  "checks": [
+    {
+      "category": "file",
+      "target": "backend/alembic/versions/s12_seed_direct_workflows.py",
+      "passed": false,
+      "message": "Task T01 references 'backend/alembic/versions/s12_seed_direct_workflows.py' which doesn't exist and isn't created by prior or same-task outputs",
+      "blocking": true
+    },
+    {
+      "category": "file",
+      "target": "backend/app/api/router.py",
+      "passed": false,
+      "message": "Task T04 references 'backend/app/api/router.py' which doesn't exist and isn't created by prior or same-task outputs",
+      "blocking": true
+    },
+    {
+      "category": "file",
+      "target": "frontend/src/routes/_layout/dashboard.tsx",
+      "passed": false,
+      "message": "Task T05 references 'frontend/src/routes/_layout/dashboard.tsx' which doesn't exist and isn't created by prior or same-task outputs",
+      "blocking": true
+    }
+  ]
+}
