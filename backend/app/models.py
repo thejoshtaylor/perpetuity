@@ -1132,6 +1132,9 @@ class Workflow(SQLModel, table=True):
     round_robin_cursor: int = Field(
         default=0, sa_column=Column(BigInteger, nullable=False, server_default="0")
     )
+    # S05 additions (s15 migration) — operational caps enforced at dispatch time
+    max_concurrent_runs: int | None = Field(default=None, nullable=True)
+    max_runs_per_hour: int | None = Field(default=None, nullable=True)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -1223,6 +1226,8 @@ class WorkflowCreate(SQLModel):
     target_user_id: uuid.UUID | None = None
     form_schema: WorkflowFormSchema = Field(default_factory=WorkflowFormSchema)
     steps: list[WorkflowStepCreate] = Field(default_factory=list)
+    max_concurrent_runs: int | None = None
+    max_runs_per_hour: int | None = None
 
 
 class WorkflowUpdate(SQLModel):
@@ -1232,6 +1237,8 @@ class WorkflowUpdate(SQLModel):
     target_user_id: uuid.UUID | None = None
     form_schema: WorkflowFormSchema | None = None
     steps: list[WorkflowStepCreate] | None = None
+    max_concurrent_runs: int | None = None
+    max_runs_per_hour: int | None = None
 
 
 class WorkflowPublic(SQLModel):
@@ -1245,6 +1252,8 @@ class WorkflowPublic(SQLModel):
     form_schema: dict[str, Any] = Field(default_factory=dict)
     target_user_id: uuid.UUID | None = None
     round_robin_cursor: int = 0
+    max_concurrent_runs: int | None = None
+    max_runs_per_hour: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -1268,6 +1277,8 @@ class WorkflowWithStepsPublic(SQLModel):
     form_schema: dict[str, Any] = Field(default_factory=dict)
     target_user_id: uuid.UUID | None = None
     round_robin_cursor: int = 0
+    max_concurrent_runs: int | None = None
+    max_runs_per_hour: int | None = None
     steps: list[WorkflowStepPublic]
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -1502,3 +1513,31 @@ class WorkflowRunCreate(SQLModel):
 class WorkflowRunDispatched(SQLModel):
     run_id: uuid.UUID
     status: WorkflowRunStatus
+
+
+# Paginated list DTO for GET /api/v1/teams/{team_id}/runs.
+class WorkflowRunSummaryPublic(SQLModel):
+    """Lightweight run row for the history list — no step_runs embedded."""
+
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    team_id: uuid.UUID
+    trigger_type: WorkflowRunTriggerType
+    triggered_by_user_id: uuid.UUID | None = None
+    target_user_id: uuid.UUID | None = None
+    status: WorkflowRunStatus
+    error_class: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    created_at: datetime | None = None
+
+
+class WorkflowRunsPublic(SQLModel):
+    data: list[WorkflowRunSummaryPublic]
+    count: int
+
+
+# Request body for POST /api/v1/admin/workflows/{id}/trigger.
+class AdminWorkflowTriggerBody(SQLModel):
+    trigger_payload: dict[str, Any] = Field(default_factory=dict)

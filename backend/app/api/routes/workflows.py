@@ -39,14 +39,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from datetime import datetime
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, status
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import Session, col, select
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
 from app.api.team_access import assert_caller_is_team_member
 from app.models import (
+    AdminWorkflowTriggerBody,
     StepRun,
     StepRunPublic,
     Workflow,
@@ -57,12 +59,16 @@ from app.models import (
     WorkflowRunDispatched,
     WorkflowRunPublic,
     WorkflowRunStatus,
+    WorkflowRunSummaryPublic,
     WorkflowRunTriggerType,
+    WorkflowRunsPublic,
     WorkflowStep,
     WorkflowsPublic,
     get_datetime_utc,
 )
 from app.services.workflow_dispatch import TargetUserNoMembershipError, resolve_target_user
+
+SystemAdminUser = Annotated[Any, Depends(get_current_active_superuser)]
 
 logger = logging.getLogger(__name__)
 
@@ -363,3 +369,187 @@ def list_team_workflows(
     )
     data = [WorkflowPublic.model_validate(row, from_attributes=True) for row in rows]
     return WorkflowsPublic(data=data, count=len(data))
+
+
+@router.get(
+    "/teams/{team_id}/runs",
+    response_model=WorkflowRunsPublic,
+)
+def list_team_runs(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    team_id: uuid.UUID,
+    status_filter: str | None = Query(default=None, alias="status"),
+    trigger_type: str | None = Query(default=None),
+    after: datetime | None = Query(default=None),
+    before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> Any:
+    """Paginated run history for a team.
+
+    Filter params:
+      - ``status``: one of pending | running | succeeded | failed | cancelled
+      - ``trigger_type``: one of button | webhook | schedule | manual | admin_manual
+      - ``after``: ISO datetime lower bound on ``created_at``
+      - ``before``: ISO datetime upper bound on ``created_at``
+      - ``limit``: page size, default 50, max 200
+      - ``offset``: pagination offset
+
+    Membership gate is on the URL ``team_id``. Runs whose parent workflow
+    has been deleted still appear — ``WorkflowRun.team_id`` is the
+    authoritative ownership field (snapshot semantics, R018).
+    """
+    try:
+        assert_caller_is_team_member(session, team_id, current_user.id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            raise HTTPException(
+                status_code=404, detail={"detail": "team_not_found"}
+            ) from exc
+        if exc.status_code == 403:
+            raise HTTPException(
+                status_code=403, detail={"detail": "not_team_member"}
+            ) from exc
+        raise
+
+    stmt = (
+        select(WorkflowRun)
+        .where(WorkflowRun.team_id == team_id)
+    )
+    if status_filter is not None:
+        try:
+            WorkflowRunStatus(status_filter)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail={"detail": "invalid_status_filter", "value": status_filter},
+            )
+        stmt = stmt.where(col(WorkflowRun.status) == status_filter)
+    if trigger_type is not None:
+        try:
+            WorkflowRunTriggerType(trigger_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail={"detail": "invalid_trigger_type_filter", "value": trigger_type},
+            )
+        stmt = stmt.where(col(WorkflowRun.trigger_type) == trigger_type)
+    if after is not None:
+        stmt = stmt.where(col(WorkflowRun.created_at) >= after)
+    if before is not None:
+        stmt = stmt.where(col(WorkflowRun.created_at) <= before)
+
+    # Total count (unbounded)
+    count_stmt = select(WorkflowRun).where(WorkflowRun.team_id == team_id)
+    if status_filter is not None:
+        count_stmt = count_stmt.where(col(WorkflowRun.status) == status_filter)
+    if trigger_type is not None:
+        count_stmt = count_stmt.where(col(WorkflowRun.trigger_type) == trigger_type)
+    if after is not None:
+        count_stmt = count_stmt.where(col(WorkflowRun.created_at) >= after)
+    if before is not None:
+        count_stmt = count_stmt.where(col(WorkflowRun.created_at) <= before)
+
+    total = len(session.exec(count_stmt).all())
+
+    stmt = stmt.order_by(col(WorkflowRun.created_at).desc()).offset(offset).limit(limit)
+    rows = list(session.exec(stmt).all())
+    data = [WorkflowRunSummaryPublic.model_validate(row, from_attributes=True) for row in rows]
+    return WorkflowRunsPublic(data=data, count=total)
+
+
+@router.post(
+    "/admin/workflows/{workflow_id}/trigger",
+    response_model=WorkflowRunDispatched,
+    status_code=202,
+)
+def admin_trigger_workflow(
+    *,
+    session: SessionDep,
+    current_user: SystemAdminUser,
+    workflow_id: uuid.UUID,
+    body: AdminWorkflowTriggerBody,
+) -> Any:
+    """Manually trigger a workflow run as system admin.
+
+    Enqueues an ``admin_manual`` WorkflowRun via the existing dispatch
+    infrastructure. The synthetic ``trigger_payload`` is stored verbatim and
+    is visible in the run history. Returns 202 with ``{run_id, status}``.
+
+    Error shapes:
+      - 404 ``{detail: "workflow_not_found"}``
+      - 403 if caller is not system_admin (enforced by SystemAdminUser dep)
+    """
+    workflow = session.get(Workflow, workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail={"detail": "workflow_not_found"}
+        )
+
+    steps = list(
+        session.exec(
+            select(WorkflowStep)
+            .where(WorkflowStep.workflow_id == workflow.id)
+            .order_by(WorkflowStep.step_index)
+        ).all()
+    )
+
+    workflow_run = WorkflowRun(
+        workflow_id=workflow.id,
+        team_id=workflow.team_id,
+        trigger_type=WorkflowRunTriggerType.admin_manual.value,
+        triggered_by_user_id=current_user.id,
+        target_user_id=None,
+        trigger_payload=dict(body.trigger_payload or {}),
+        status=WorkflowRunStatus.pending.value,
+    )
+    session.add(workflow_run)
+    session.flush()
+
+    for step in steps:
+        session.add(
+            StepRun(
+                workflow_run_id=workflow_run.id,
+                step_index=step.step_index,
+                snapshot=_snapshot_step(step),
+                status="pending",
+            )
+        )
+    session.commit()
+    session.refresh(workflow_run)
+
+    from app.workflows.tasks import run_workflow
+
+    try:
+        run_workflow.delay(str(workflow_run.id))
+    except Exception as exc:
+        workflow_run.status = WorkflowRunStatus.failed.value
+        workflow_run.error_class = "dispatch_failed"
+        workflow_run.finished_at = get_datetime_utc()
+        session.add(workflow_run)
+        session.commit()
+        logger.error(
+            "admin_manual_trigger_dispatch_failed run_id=%s workflow_id=%s triggered_by=%s",
+            workflow_run.id,
+            workflow.id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=503, detail={"detail": "task_dispatch_failed"}
+        ) from exc
+
+    logger.info(
+        "admin_manual_trigger_queued run_id=%s workflow_id=%s "
+        "triggered_by=%s trigger_payload_keys=%s",
+        workflow_run.id,
+        workflow.id,
+        current_user.id,
+        sorted(body.trigger_payload.keys()) if body.trigger_payload else [],
+    )
+
+    return WorkflowRunDispatched(
+        run_id=workflow_run.id,
+        status=WorkflowRunStatus.pending,
+    )
