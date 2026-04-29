@@ -91,7 +91,7 @@ Assumptions documented inline: (1) `workflow_runs.scope` is omitted — it lives
   - Files: `backend/app/api/routes/workflows.py`, `backend/app/api/main.py`, `docker-compose.yml`, `backend/tests/api/test_workflow_run_routes.py`
   - Verify: cd backend && POSTGRES_DB=perpetuity_app uv run pytest tests/api/test_workflow_run_routes.py -v && docker compose config --services | grep -q celery-worker
 
-- [ ] **T05: Dashboard direct AI buttons + run-detail polled page** `est:1.5 days`
+- [x] **T05: Dashboard direct AI buttons + run-detail polled page** `est:1.5 days`
   Frontend changes that make the dashboard demo-truth statement pass. Two surfaces: the team dashboard (extends the existing `teams_.$teamId.tsx` route which already hosts the S01 secrets panel — that route IS the team dashboard for S02's purposes) and a new `/runs/$runId` route.
 
 (1) `frontend/src/components/dashboard/DirectAIButtons.tsx`: renders two buttons ('Run Claude', 'Run Codex'). On click, opens a `PromptDialog` modal with a Textarea for the prompt and Submit / Cancel. On Submit: looks up the `_direct_claude` (or `_direct_codex`) workflow id via `GET /api/v1/teams/{team_id}/workflows` (added in T04). Posts to `POST /api/v1/workflows/{id}/run` with `{trigger_payload: {prompt}}`. On success: navigates to `/runs/{run_id}`.

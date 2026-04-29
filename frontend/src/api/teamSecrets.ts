@@ -1,7 +1,4 @@
-import {
-  type TeamSecretStatus,
-  TeamSecretsService,
-} from "@/client"
+import { type TeamSecretStatus, TeamSecretsService } from "@/client"
 
 export type TeamSecretsListEnvelope = TeamSecretStatus[]
 

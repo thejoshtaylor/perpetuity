@@ -1008,6 +1008,119 @@ export const SignupBodySchema = {
     title: 'SignupBody'
 } as const;
 
+export const StepRunPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        workflow_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Workflow Run Id'
+        },
+        step_index: {
+            type: 'integer',
+            title: 'Step Index'
+        },
+        snapshot: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Snapshot'
+        },
+        status: {
+            '$ref': '#/components/schemas/StepRunStatus'
+        },
+        stdout: {
+            type: 'string',
+            title: 'Stdout'
+        },
+        stderr: {
+            type: 'string',
+            title: 'Stderr'
+        },
+        exit_code: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Exit Code'
+        },
+        error_class: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Class'
+        },
+        duration_ms: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Duration Ms'
+        },
+        started_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Started At'
+        },
+        finished_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Finished At'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'workflow_run_id', 'step_index', 'snapshot', 'status', 'stdout', 'stderr'],
+    title: 'StepRunPublic'
+} as const;
+
+export const StepRunStatusSchema = {
+    type: 'string',
+    enum: ['pending', 'running', 'succeeded', 'failed', 'skipped'],
+    title: 'StepRunStatus'
+} as const;
+
 export const SystemSettingGenerateResponseSchema = {
     properties: {
         key: {
@@ -1718,4 +1831,268 @@ export const VoiceTranscribeResponseSchema = {
     type: 'object',
     required: ['text'],
     title: 'VoiceTranscribeResponse'
+} as const;
+
+export const WorkflowPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        team_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Team Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        scope: {
+            '$ref': '#/components/schemas/WorkflowScope'
+        },
+        system_owned: {
+            type: 'boolean',
+            title: 'System Owned'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'team_id', 'name', 'scope', 'system_owned'],
+    title: 'WorkflowPublic'
+} as const;
+
+export const WorkflowRunCreateSchema = {
+    properties: {
+        trigger_payload: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Trigger Payload'
+        }
+    },
+    type: 'object',
+    title: 'WorkflowRunCreate'
+} as const;
+
+export const WorkflowRunDispatchedSchema = {
+    properties: {
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        status: {
+            '$ref': '#/components/schemas/WorkflowRunStatus'
+        }
+    },
+    type: 'object',
+    required: ['run_id', 'status'],
+    title: 'WorkflowRunDispatched'
+} as const;
+
+export const WorkflowRunPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        workflow_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Workflow Id'
+        },
+        team_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Team Id'
+        },
+        trigger_type: {
+            '$ref': '#/components/schemas/WorkflowRunTriggerType'
+        },
+        triggered_by_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Triggered By User Id'
+        },
+        target_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Target User Id'
+        },
+        trigger_payload: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Trigger Payload'
+        },
+        status: {
+            '$ref': '#/components/schemas/WorkflowRunStatus'
+        },
+        error_class: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Class'
+        },
+        started_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Started At'
+        },
+        finished_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Finished At'
+        },
+        duration_ms: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Duration Ms'
+        },
+        last_heartbeat_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Heartbeat At'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        step_runs: {
+            items: {
+                '$ref': '#/components/schemas/StepRunPublic'
+            },
+            type: 'array',
+            title: 'Step Runs'
+        }
+    },
+    type: 'object',
+    required: ['id', 'workflow_id', 'team_id', 'trigger_type', 'trigger_payload', 'status'],
+    title: 'WorkflowRunPublic'
+} as const;
+
+export const WorkflowRunStatusSchema = {
+    type: 'string',
+    enum: ['pending', 'running', 'succeeded', 'failed', 'cancelled'],
+    title: 'WorkflowRunStatus'
+} as const;
+
+export const WorkflowRunTriggerTypeSchema = {
+    type: 'string',
+    enum: ['button', 'webhook', 'schedule', 'manual', 'admin_manual'],
+    title: 'WorkflowRunTriggerType'
+} as const;
+
+export const WorkflowScopeSchema = {
+    type: 'string',
+    enum: ['user', 'team', 'round_robin'],
+    title: 'WorkflowScope'
+} as const;
+
+export const WorkflowsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/WorkflowPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'WorkflowsPublic'
 } as const;

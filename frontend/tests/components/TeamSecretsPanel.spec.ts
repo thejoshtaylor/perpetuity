@@ -13,9 +13,8 @@
 // Run with: cd frontend && npm test -- TeamSecretsPanel
 
 import { expect, type Page, test } from "@playwright/test"
-
-import { createTeamFromUI } from "../utils/teams"
 import { randomTeamName } from "../utils/random"
+import { createTeamFromUI } from "../utils/teams"
 
 const CLAUDE_KEY = "claude_api_key"
 const OPENAI_KEY = "openai_api_key"
@@ -97,9 +96,7 @@ test.describe("TeamSecretsPanel — admin surface", () => {
       await expect(input).toHaveAttribute("type", "password")
       await input.fill(VALID_CLAUDE_VALUE)
 
-      await page
-        .getByTestId(`team-secret-paste-submit-${CLAUDE_KEY}`)
-        .click()
+      await page.getByTestId(`team-secret-paste-submit-${CLAUDE_KEY}`).click()
 
       // 2) Modal closes, panel re-renders with has_value=true.
       await expect(dialog).toBeHidden()
@@ -121,9 +118,7 @@ test.describe("TeamSecretsPanel — admin surface", () => {
         `team-secret-delete-dialog-${CLAUDE_KEY}`,
       )
       await expect(confirmDialog).toBeVisible()
-      await page
-        .getByTestId(`team-secret-delete-confirm-${CLAUDE_KEY}`)
-        .click()
+      await page.getByTestId(`team-secret-delete-confirm-${CLAUDE_KEY}`).click()
       await expect(confirmDialog).toBeHidden()
       await expect(claudeRow).toHaveAttribute("data-has-value", "false")
     } finally {

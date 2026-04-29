@@ -3,12 +3,13 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Suspense } from "react"
 
 import { TeamsService, type TeamWithRole, UsersService } from "@/client"
-import TeamSecretsPanel from "@/components/team/TeamSecretsPanel"
+import DirectAIButtons from "@/components/dashboard/DirectAIButtons"
 import ConnectionsList from "@/components/Teams/GitHub/ConnectionsList"
 import InviteButton from "@/components/Teams/InviteButton"
 import MembersList, { MembersListPending } from "@/components/Teams/MembersList"
 import AlwaysOnToggle from "@/components/Teams/Mirror/AlwaysOnToggle"
 import ProjectsList from "@/components/Teams/Projects/ProjectsList"
+import TeamSecretsPanel from "@/components/team/TeamSecretsPanel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -129,6 +130,15 @@ function TeamDetailContent() {
           <ConnectionsList teamId={team.id} callerIsAdmin={callerIsAdmin} />
         </section>
       )}
+
+      <section
+        className="flex flex-col gap-2"
+        data-testid="direct-ai-section"
+        aria-label="Run AI assistant"
+      >
+        <h2 className="text-sm font-medium">Run AI assistant</h2>
+        <DirectAIButtons teamId={team.id} />
+      </section>
 
       <section
         className="flex flex-col gap-2"

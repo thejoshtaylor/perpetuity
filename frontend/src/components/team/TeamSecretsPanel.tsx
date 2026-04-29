@@ -2,18 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { KeyRound, Lock } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
-
-import {
-  type ApiError,
-  type TeamSecretStatus,
-  TeamSecretsService,
-} from "@/client"
 import {
   REGISTERED_TEAM_SECRET_KEYS,
   type RegisteredTeamSecretKey,
   teamSecretsQueryKey,
   teamSecretsQueryOptions,
 } from "@/api/teamSecrets"
+import {
+  type ApiError,
+  type TeamSecretStatus,
+  TeamSecretsService,
+} from "@/client"
 import PasteSecretDialog from "@/components/team/PasteSecretDialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -294,9 +293,7 @@ export function TeamSecretsPanel({ teamId, callerIsAdmin }: Props) {
               setDialog({ kind: "none" })
             }
           }}
-          onSubmit={(value) =>
-            putMutation.mutate({ key: dialog.key, value })
-          }
+          onSubmit={(value) => putMutation.mutate({ key: dialog.key, value })}
           isPending={putMutation.isPending}
           serverError={
             putMutation.isError

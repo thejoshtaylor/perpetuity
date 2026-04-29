@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateVapidKeysResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, PushGetVapidPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, PushListSubscriptionsResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, TeamSecretsPutTeamSecretData, TeamSecretsPutTeamSecretResponse, TeamSecretsGetTeamSecretStatusData, TeamSecretsGetTeamSecretStatusResponse, TeamSecretsDeleteTeamSecretRouteData, TeamSecretsDeleteTeamSecretRouteResponse, TeamSecretsListTeamSecretsData, TeamSecretsListTeamSecretsResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, VoiceTranscribeVoiceData, VoiceTranscribeVoiceResponse } from './types.gen';
+import type { AdminReadAllTeamsData, AdminReadAllTeamsResponse, AdminReadAdminTeamMembersData, AdminReadAdminTeamMembersResponse, AdminPromoteSystemAdminData, AdminPromoteSystemAdminResponse, AdminListSystemSettingsResponse, AdminGetSystemSettingData, AdminGetSystemSettingResponse, AdminPutSystemSettingData, AdminPutSystemSettingResponse, AdminGenerateVapidKeysResponse, AdminGenerateSystemSettingData, AdminGenerateSystemSettingResponse, AuthSignupData, AuthSignupResponse, AuthLoginData, AuthLoginResponse, AuthLogoutResponse, GithubGetGithubInstallUrlData, GithubGetGithubInstallUrlResponse, GithubGithubInstallCallbackData, GithubGithubInstallCallbackResponse, GithubListGithubInstallationsData, GithubListGithubInstallationsResponse, GithubDeleteGithubInstallationData, GithubDeleteGithubInstallationResponse, GithubReceiveGithubWebhookResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, NotificationsListNotificationsData, NotificationsListNotificationsResponse, NotificationsUnreadCountResponse, NotificationsMarkReadData, NotificationsMarkReadResponse, NotificationsMarkAllReadResponse, NotificationsTriggerTestNotificationData, NotificationsTriggerTestNotificationResponse, NotificationsListPreferencesResponse, NotificationsUpsertPreferenceData, NotificationsUpsertPreferenceResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsListTeamProjectsData, ProjectsListTeamProjectsResponse, ProjectsCreateTeamProjectData, ProjectsCreateTeamProjectResponse, ProjectsGetProjectData, ProjectsGetProjectResponse, ProjectsUpdateProjectData, ProjectsUpdateProjectResponse, ProjectsDeleteProjectData, ProjectsDeleteProjectResponse, ProjectsGetProjectPushRuleData, ProjectsGetProjectPushRuleResponse, ProjectsPutProjectPushRuleData, ProjectsPutProjectPushRuleResponse, ProjectsOpenProjectData, ProjectsOpenProjectResponse, PushGetVapidPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, PushListSubscriptionsResponse, SessionsCreateSessionData, SessionsCreateSessionResponse, SessionsListSessionsData, SessionsListSessionsResponse, SessionsDeleteSessionData, SessionsDeleteSessionResponse, SessionsGetSessionScrollbackData, SessionsGetSessionScrollbackResponse, TeamsReadTeamsResponse, TeamsCreateTeamData, TeamsCreateTeamResponse, TeamsReadTeamMembersData, TeamsReadTeamMembersResponse, TeamsInviteToTeamData, TeamsInviteToTeamResponse, TeamsJoinTeamData, TeamsJoinTeamResponse, TeamsUpdateMemberRoleData, TeamsUpdateMemberRoleResponse, TeamsRemoveMemberData, TeamsRemoveMemberResponse, TeamsUpdateTeamMirrorData, TeamsUpdateTeamMirrorResponse, TeamSecretsPutTeamSecretData, TeamSecretsPutTeamSecretResponse, TeamSecretsGetTeamSecretStatusData, TeamSecretsGetTeamSecretStatusResponse, TeamSecretsDeleteTeamSecretRouteData, TeamSecretsDeleteTeamSecretRouteResponse, TeamSecretsListTeamSecretsData, TeamSecretsListTeamSecretsResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, VoiceTranscribeVoiceData, VoiceTranscribeVoiceResponse, WorkflowsDispatchWorkflowRunData, WorkflowsDispatchWorkflowRunResponse, WorkflowsGetWorkflowRunData, WorkflowsGetWorkflowRunResponse, WorkflowsListTeamWorkflowsData, WorkflowsListTeamWorkflowsResponse } from './types.gen';
 
 export class AdminService {
     /**
@@ -1770,6 +1770,99 @@ export class VoiceService {
             url: '/api/v1/voice/transcribe',
             formData: data.formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class WorkflowsService {
+    /**
+     * Dispatch Workflow Run
+     * Dispatch a workflow run. Returns `{run_id, status='pending'}`.
+     *
+     * Inserts the `workflow_runs` row plus one `step_runs` row per workflow
+     * step (snapshot-frozen at dispatch time). Commits. Then enqueues
+     * `run_workflow.delay(run_id)` on Celery. The Celery task takes ownership
+     * of the row from there.
+     *
+     * For `_direct_claude` / `_direct_codex` the trigger payload must carry
+     * a non-empty `prompt` string — the API enforces this at the boundary
+     * rather than letting the executor surface it as a step failure, because
+     * a malformed dispatch is a 400, not a `error_class='cli_nonzero'`.
+     *
+     * If Celery `.delay()` raises (e.g. broker unavailable), we mark the run
+     * failed with `error_class='dispatch_failed'` so the row carries a
+     * breadcrumb, then surface 503. The run is never left in `pending` with
+     * no task on the queue — that would be the worst inspection failure mode.
+     * @param data The data for the request.
+     * @param data.workflowId
+     * @param data.requestBody
+     * @returns WorkflowRunDispatched Successful Response
+     * @throws ApiError
+     */
+    public static dispatchWorkflowRun(data: WorkflowsDispatchWorkflowRunData): CancelablePromise<WorkflowsDispatchWorkflowRunResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows/{workflow_id}/run',
+            path: {
+                workflow_id: data.workflowId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Workflow Run
+     * Return the WorkflowRun with its ordered step_runs.
+     *
+     * Membership gate is on the run's team (joined through workflow.team_id;
+     * the WorkflowRun row also carries team_id directly). Missing run → 404
+     * `workflow_run_not_found`. The dashboard polls this every 1.5s while
+     * `status in {pending, running}`.
+     * @param data The data for the request.
+     * @param data.runId
+     * @returns WorkflowRunPublic Successful Response
+     * @throws ApiError
+     */
+    public static getWorkflowRun(data: WorkflowsGetWorkflowRunData): CancelablePromise<WorkflowsGetWorkflowRunResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflow_runs/{run_id}',
+            path: {
+                run_id: data.runId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Team Workflows
+     * List workflows for `team_id` (registry shape).
+     *
+     * Used by T05's dashboard to look up the `_direct_claude` / `_direct_codex`
+     * workflow ids. Returns both system-owned and user-owned workflows;
+     * callers that only want one cohort filter on `system_owned`. Membership
+     * gate is on the URL `team_id`.
+     * @param data The data for the request.
+     * @param data.teamId
+     * @returns WorkflowsPublic Successful Response
+     * @throws ApiError
+     */
+    public static listTeamWorkflows(data: WorkflowsListTeamWorkflowsData): CancelablePromise<WorkflowsListTeamWorkflowsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/teams/{team_id}/workflows',
+            path: {
+                team_id: data.teamId
+            },
             errors: {
                 422: 'Validation Error'
             }

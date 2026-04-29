@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "unitId": "M005-sqm8et/S02/T04",
+  "timestamp": 1777431829664,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 4,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_DB=perpetuity_app uv run pytest tests/api/test_workflow_run_routes.py -v",
+      "exitCode": 4,
+      "durationMs": 169,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

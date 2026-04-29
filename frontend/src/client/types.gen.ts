@@ -267,6 +267,26 @@ export type SignupBody = {
     full_name?: (string | null);
 };
 
+export type StepRunPublic = {
+    id: string;
+    workflow_run_id: string;
+    step_index: number;
+    snapshot: {
+        [key: string]: unknown;
+    };
+    status: StepRunStatus;
+    stdout: string;
+    stderr: string;
+    exit_code?: (number | null);
+    error_class?: (string | null);
+    duration_ms?: (number | null);
+    started_at?: (string | null);
+    finished_at?: (string | null);
+    created_at?: (string | null);
+};
+
+export type StepRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
 export type SystemSettingGenerateResponse = {
     key: string;
     value: string;
@@ -433,6 +453,59 @@ export type VapidPublicKeyResponse = {
 
 export type VoiceTranscribeResponse = {
     text: string;
+};
+
+export type WorkflowPublic = {
+    id: string;
+    team_id: string;
+    name: string;
+    description?: (string | null);
+    scope: WorkflowScope;
+    system_owned: boolean;
+    created_at?: (string | null);
+    updated_at?: (string | null);
+};
+
+export type WorkflowRunCreate = {
+    trigger_payload?: {
+        [key: string]: unknown;
+    };
+};
+
+export type WorkflowRunDispatched = {
+    run_id: string;
+    status: WorkflowRunStatus;
+};
+
+export type WorkflowRunPublic = {
+    id: string;
+    workflow_id: string;
+    team_id: string;
+    trigger_type: WorkflowRunTriggerType;
+    triggered_by_user_id?: (string | null);
+    target_user_id?: (string | null);
+    trigger_payload: {
+        [key: string]: unknown;
+    };
+    status: WorkflowRunStatus;
+    error_class?: (string | null);
+    started_at?: (string | null);
+    finished_at?: (string | null);
+    duration_ms?: (number | null);
+    last_heartbeat_at?: (string | null);
+    created_at?: (string | null);
+    step_runs?: Array<StepRunPublic>;
+};
+
+export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export type WorkflowRunTriggerType = 'button' | 'webhook' | 'schedule' | 'manual' | 'admin_manual';
+
+export type WorkflowScope = 'user' | 'team' | 'round_robin';
+
+export type WorkflowsPublic = {
+    data: Array<WorkflowPublic>;
+    count: number;
 };
 
 export type AdminReadAllTeamsData = {
@@ -856,3 +929,22 @@ export type VoiceTranscribeVoiceData = {
 };
 
 export type VoiceTranscribeVoiceResponse = (VoiceTranscribeResponse);
+
+export type WorkflowsDispatchWorkflowRunData = {
+    requestBody: WorkflowRunCreate;
+    workflowId: string;
+};
+
+export type WorkflowsDispatchWorkflowRunResponse = (WorkflowRunDispatched);
+
+export type WorkflowsGetWorkflowRunData = {
+    runId: string;
+};
+
+export type WorkflowsGetWorkflowRunResponse = (WorkflowRunPublic);
+
+export type WorkflowsListTeamWorkflowsData = {
+    teamId: string;
+};
+
+export type WorkflowsListTeamWorkflowsResponse = (WorkflowsPublic);
