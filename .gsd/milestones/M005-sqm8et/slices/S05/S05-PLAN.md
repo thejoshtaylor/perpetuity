@@ -70,7 +70,7 @@ Why/Files/Do/Verify/Done-when:
   - Files: `backend/app/workflows/tasks.py`, `backend/app/core/celery_app.py`, `docker-compose.yml`, `backend/tests/unit/test_recover_orphan_runs.py`
   - Verify: cd backend && uv run pytest tests/unit/test_recover_orphan_runs.py -v
 
-- [ ] **T04: Frontend run history list page (/runs) with filters** `est:60m`
+- [x] **T04: Frontend run history list page (/runs) with filters** `est:60m`
   Create frontend/src/routes/_layout/runs.tsx — the team run history list page. It fetches from GET /api/v1/teams/{teamId}/runs (added in T01), renders a table of runs with columns: run ID (truncated), workflow name (from snapshot, not live FK), trigger type badge, status badge, created_at relative timestamp, duration. Filter controls above the table: status multi-select (pending/running/succeeded/failed/cancelled/rejected), trigger_type multi-select, after/before date inputs. Each row links to the existing /runs/{runId} drilldown page. Pagination with limit=50 and offset-based 'Load more' button.
 
 Use existing UI patterns from runs_.$runId.tsx and workflows.tsx for TanStack Query fetching, badge styling, and status color conventions. No new UI components needed — compose from existing ones.

@@ -19,6 +19,7 @@ import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as LayoutWorkflowsRouteImport } from './routes/_layout/workflows'
 import { Route as LayoutTeamsRouteImport } from './routes/_layout/teams'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
+import { Route as LayoutRunsRouteImport } from './routes/_layout/runs'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 import { Route as LayoutWorkflowsWorkflowIdRouteImport } from './routes/_layout/workflows_.$workflowId'
@@ -77,6 +78,11 @@ const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutRunsRoute = LayoutRunsRouteImport.update({
+  id: '/runs',
+  path: '/runs',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutItemsRoute = LayoutItemsRouteImport.update({
   id: '/items',
   path: '/items',
@@ -127,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRouteWithChildren
   '/items': typeof LayoutItemsRoute
+  '/runs': typeof LayoutRunsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
   '/workflows': typeof LayoutWorkflowsRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRouteWithChildren
   '/items': typeof LayoutItemsRoute
+  '/runs': typeof LayoutRunsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
   '/workflows': typeof LayoutWorkflowsRoute
@@ -166,6 +174,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_layout/admin': typeof LayoutAdminRouteWithChildren
   '/_layout/items': typeof LayoutItemsRoute
+  '/_layout/runs': typeof LayoutRunsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/teams': typeof LayoutTeamsRoute
   '/_layout/workflows': typeof LayoutWorkflowsRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/admin'
     | '/items'
+    | '/runs'
     | '/settings'
     | '/teams'
     | '/workflows'
@@ -206,6 +216,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/admin'
     | '/items'
+    | '/runs'
     | '/settings'
     | '/teams'
     | '/workflows'
@@ -226,6 +237,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_layout/admin'
     | '/_layout/items'
+    | '/_layout/runs'
     | '/_layout/settings'
     | '/_layout/teams'
     | '/_layout/workflows'
@@ -320,6 +332,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutSettingsRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/runs': {
+      id: '/_layout/runs'
+      path: '/runs'
+      fullPath: '/runs'
+      preLoaderRoute: typeof LayoutRunsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/items': {
       id: '/_layout/items'
       path: '/items'
@@ -396,6 +415,7 @@ const LayoutAdminRouteWithChildren = LayoutAdminRoute._addFileChildren(
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRouteWithChildren
   LayoutItemsRoute: typeof LayoutItemsRoute
+  LayoutRunsRoute: typeof LayoutRunsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutTeamsRoute: typeof LayoutTeamsRoute
   LayoutWorkflowsRoute: typeof LayoutWorkflowsRoute
@@ -409,6 +429,7 @@ interface LayoutRouteChildren {
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRouteWithChildren,
   LayoutItemsRoute: LayoutItemsRoute,
+  LayoutRunsRoute: LayoutRunsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutTeamsRoute: LayoutTeamsRoute,
   LayoutWorkflowsRoute: LayoutWorkflowsRoute,
