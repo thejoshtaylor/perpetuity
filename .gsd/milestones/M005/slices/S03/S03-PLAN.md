@@ -36,7 +36,7 @@ S02 shipped workflow_runs + step_runs schema and run engine; S03 adds the CRUD m
   - Files: `backend/app/services/workflow_dispatch.py`, `backend/tests/api/test_workflow_dispatch_service.py`
   - Verify: cd backend && python -m pytest tests/api/test_workflow_dispatch_service.py -x -q
 
-- [ ] **T04: Implement workflow CRUD API routes and cancellation endpoint** `est:1h30m`
+- [x] **T04: Implement workflow CRUD API routes and cancellation endpoint** `est:1h30m`
   Create backend/app/api/routes/workflows_crud.py with: POST /teams/{team_id}/workflows (admin), GET /workflows/{id}, PUT /workflows/{id} (admin), DELETE /workflows/{id} (admin), POST /workflow_runs/{run_id}/cancel (member). System-owned workflows (_direct_ prefix) are rejected on PUT/DELETE. form_schema validated on create/update. Cancellation sets status=cancelled + audit fields. Write pytest coverage for all routes including role gates.
   - Files: `backend/app/api/routes/workflows_crud.py`, `backend/app/api/routes/workflows.py`, `backend/app/api/router.py`, `backend/tests/api/test_workflow_crud_routes.py`, `backend/tests/api/test_workflow_cancel_route.py`
   - Verify: cd backend && python -m pytest tests/api/test_workflow_crud_routes.py tests/api/test_workflow_cancel_route.py -x -q
