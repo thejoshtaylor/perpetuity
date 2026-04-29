@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T06",
+  "unitId": "M005-sqm8et/S03/T06",
+  "timestamp": 1777451907480,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend && POSTGRES_DB=perpetuity_app uv run python -c \"import ast; ast.parse(open('tests/integration/test_m005_s03_workflow_run_engine_e2e.py').read()); print('AST OK')\"",
+      "exitCode": 0,
+      "durationMs": 800,
+      "verdict": "pass"
+    },
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend && POSTGRES_DB=perpetuity_app uv run python -m py_compile tests/integration/test_m005_s03_workflow_run_engine_e2e.py",
+      "exitCode": 0,
+      "durationMs": 400,
+      "verdict": "pass"
+    },
+    {
+      "command": "cd /Users/josh/code/perpetuity/backend && POSTGRES_DB=perpetuity_app uv run pytest -m e2e tests/integration/test_m005_s03_workflow_run_engine_e2e.py -v",
+      "exitCode": 0,
+      "durationMs": 39720,
+      "verdict": "pass",
+      "note": "7 tests collected, 7 skipped (e2e marker requires live compose stack with celery-worker + orchestrator + backend:latest with s13 migration). Skip is the expected outcome without compose stack. Tests are syntactically valid and collect cleanly."
+    }
+  ],
+  "retryAttempt": 2,
+  "maxRetries": 2,
+  "fixNote": "Previous failure was a working-directory error: the verify command ran from repo root where pyproject.toml does not live. Correct invocation is: cd backend/ first, then pytest with relative path tests/integration/..."
+}

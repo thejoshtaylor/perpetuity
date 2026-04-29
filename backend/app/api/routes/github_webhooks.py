@@ -389,6 +389,8 @@ async def receive_github_webhook(
         delivery_id,
         event_type,
     )
-    dispatch_github_event(event_type, payload, delivery_id=delivery_id)
+    await dispatch_github_event(
+        event_type, payload, delivery_id=delivery_id, session=session
+    )
 
     return {"status": "ok", "duplicate": False}

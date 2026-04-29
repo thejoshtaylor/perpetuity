@@ -1378,6 +1378,13 @@ class WorkflowRun(SQLModel, table=True):
         sa_type=DateTime(timezone=True),  # type: ignore
         nullable=True,
     )
+    # S04 addition (s14 migration) — webhook idempotency. Set only when
+    # trigger_type='webhook'; NULL for all other trigger types. The UNIQUE
+    # constraint on this column prevents a duplicate delivery_id from
+    # creating a second WorkflowRun row.
+    webhook_delivery_id: str | None = Field(
+        default=None, max_length=64, nullable=True, unique=True
+    )
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore

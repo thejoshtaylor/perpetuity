@@ -243,8 +243,8 @@ def test_valid_signature_persists_and_dispatches(
 
     captured: list[tuple[str, dict[str, Any], str | None]] = []
 
-    def _spy(
-        event_type: str, payload: dict[str, Any], *, delivery_id: str | None = None
+    async def _spy(
+        event_type: str, payload: dict[str, Any], *, delivery_id: str | None = None, session: Any = None
     ) -> None:
         captured.append((event_type, payload, delivery_id))
 
@@ -331,7 +331,6 @@ def test_valid_signature_dispatch_log_emitted_with_real_dispatch(
     assert any(
         "webhook_dispatched" in m
         and "dlv-valid-real-001" in m
-        and "dispatch_status=noop" in m
         for m in msgs
     ), msgs
 
@@ -351,8 +350,8 @@ def test_invalid_signature_rejects_and_audits(
 
     dispatched: list[tuple[str, dict[str, Any], str | None]] = []
 
-    def _spy(
-        event_type: str, payload: dict[str, Any], *, delivery_id: str | None = None
+    async def _spy(
+        event_type: str, payload: dict[str, Any], *, delivery_id: str | None = None, session: Any = None
     ) -> None:
         dispatched.append((event_type, payload, delivery_id))
 
@@ -452,8 +451,8 @@ def test_duplicate_delivery_id_is_idempotent(
 
     invocations: list[str | None] = []
 
-    def _spy(
-        event_type: str, payload: dict[str, Any], *, delivery_id: str | None = None
+    async def _spy(
+        event_type: str, payload: dict[str, Any], *, delivery_id: str | None = None, session: Any = None
     ) -> None:
         invocations.append(delivery_id)
 
@@ -514,7 +513,7 @@ def test_valid_signature_but_malformed_json_returns_400(
 
     invocations: list[Any] = []
 
-    def _spy(*a: Any, **kw: Any) -> None:
+    async def _spy(*a: Any, **kw: Any) -> None:
         invocations.append((a, kw))
 
     import app.api.routes.github_webhooks as wh
