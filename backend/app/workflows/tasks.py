@@ -82,21 +82,46 @@ def _execute_one_step(
     workflow_run: WorkflowRun,
     step: WorkflowStep,
 ) -> StepRun:
-    """Create the step_run row, dispatch the executor, return the row.
+    """Transition the pending step_run row to `running`, dispatch the
+    executor, return the row.
+
+    The dispatch route in ``app.api.routes.workflows.dispatch_workflow_run``
+    pre-creates one ``step_runs`` row per workflow step in `pending` status
+    at commit-of-the-trigger time so the run-detail GET endpoint can render
+    the full step list before the worker has picked up the task. The
+    ``UNIQUE (workflow_run_id, step_index)`` constraint means the worker
+    must NOT insert a fresh row — instead we look up the pending row and
+    flip it to `running` in place. If no pending row exists (older runs
+    pre-dating the API-side pre-create, or a manual DB tweak) we fall back
+    to creating one.
 
     Returns the (refreshed) StepRun so the caller can read `status` /
     `error_class` to decide whether to keep iterating.
     """
-    step_run = StepRun(
-        workflow_run_id=workflow_run.id,
-        step_index=step.step_index,
-        snapshot=_snapshot_step(step),
-        status="running",
-        started_at=get_datetime_utc(),
-    )
-    session.add(step_run)
-    session.commit()
-    session.refresh(step_run)
+    existing = session.exec(
+        select(StepRun)
+        .where(StepRun.workflow_run_id == workflow_run.id)
+        .where(StepRun.step_index == step.step_index)
+    ).first()
+    if existing is not None:
+        existing.snapshot = _snapshot_step(step)
+        existing.status = "running"
+        existing.started_at = get_datetime_utc()
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        step_run = existing
+    else:
+        step_run = StepRun(
+            workflow_run_id=workflow_run.id,
+            step_index=step.step_index,
+            snapshot=_snapshot_step(step),
+            status="running",
+            started_at=get_datetime_utc(),
+        )
+        session.add(step_run)
+        session.commit()
+        session.refresh(step_run)
 
     if step.action in _AI_ACTIONS:
         run_ai_step(session, step_run.id)

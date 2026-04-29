@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M005-sqm8et/S02/T05",
+  "timestamp": 1777432722077,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 1,
+      "durationMs": 124,
+      "verdict": "fail"
+    },
+    {
+      "command": "npx playwright test tests/components/DirectAIButtons.spec.ts tests/components/RunDetailPage.spec.ts",
+      "exitCode": 1,
+      "durationMs": 4721,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

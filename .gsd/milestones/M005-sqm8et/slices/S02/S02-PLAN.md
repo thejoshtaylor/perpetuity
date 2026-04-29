@@ -106,7 +106,7 @@ Assumptions documented inline: (1) `workflow_runs.scope` is omitted — it lives
   - Files: `frontend/src/components/dashboard/DirectAIButtons.tsx`, `frontend/src/components/dashboard/PromptDialog.tsx`, `frontend/src/routes/_layout/runs_.$runId.tsx`, `frontend/src/routes/_layout/teams_.$teamId.tsx`, `frontend/src/api/workflows.ts`, `frontend/src/client/sdk.gen.ts`, `frontend/src/client/types.gen.ts`, `frontend/openapi.json`, `frontend/tests/components/DirectAIButtons.spec.ts`, `frontend/tests/components/RunDetailPage.spec.ts`
   - Verify: cd frontend && npm run build && npx playwright test tests/components/DirectAIButtons.spec.ts tests/components/RunDetailPage.spec.ts
 
-- [ ] **T06: Slice e2e — dashboard click → run page reflects success against live compose stack** `est:2 days`
+- [x] **T06: Slice e2e — dashboard click → run page reflects success against live compose stack** `est:2 days`
   Slice closure. Single integration test runs the full chain against the live compose stack with a deterministic test-shim CLI replacing the real `claude` / `codex` (real-API acceptance is reserved for S06 per D029).
 
 Test plan in `backend/tests/integration/test_m005_s02_dashboard_ai_buttons_e2e.py`:

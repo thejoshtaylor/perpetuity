@@ -25,6 +25,7 @@ The fixtures here:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -400,4 +401,237 @@ def backend_url(
                 "rm", "-f", *ws.stdout.split(),
                 check=False, timeout=120,
             )
+        _docker("rm", "-f", name, check=False, timeout=30)
+
+
+# ----- ephemeral orchestrator pointed at the e2e DB ----------------------
+#
+# The compose `orchestrator` service inherits POSTGRES_DB from .env, which
+# defaults to `app`. When the e2e suite is run with POSTGRES_DB=perpetuity_app
+# (the canonical M005 e2e shape — the bare `app` DB has been contaminated by
+# an unrelated project per MEM348/MEM361), the compose orchestrator is on
+# the wrong DB and POST /v1/sessions surfaces 503 with
+# `pg_unreachable op=get_volume reason=UndefinedTableError`.
+#
+# Mirror the M002/S05 rotation pattern: stop the compose orchestrator and
+# boot an ephemeral one carrying DATABASE_URL pointed at the test DB,
+# attached to the compose network with the `orchestrator` DNS alias so
+# the sibling backend / celery worker resolve it transparently. The
+# fixture is a no-op when POSTGRES_DB is unset / set to `app`.
+_ORCH_DNS_ALIAS = "orchestrator"
+
+
+@pytest.fixture(scope="session")
+def orchestrator_on_e2e_db(
+    compose_stack_up: None,  # noqa: ARG001
+) -> Iterator[None]:
+    """Ensure the orchestrator on the network points at the e2e DB.
+
+    Idempotent across the session — the first test that pulls this
+    fixture swaps the compose orchestrator for an ephemeral one (or
+    leaves the compose orchestrator alone if the DB matches).
+    """
+    pg_db = os.environ.get("POSTGRES_DB", "app")
+    if pg_db == "app":
+        # Compose orchestrator already on the right DB.
+        yield
+        return
+
+    if not _docker_socket_reachable() or not _docker_info_ok():
+        pytest.skip("docker not available")
+
+    pg_password = (
+        os.environ.get("POSTGRES_PASSWORD")
+        or _read_dotenv_value("POSTGRES_PASSWORD", "changethis")
+    )
+    redis_password = (
+        os.environ.get("REDIS_PASSWORD")
+        or _read_dotenv_value("REDIS_PASSWORD", "changethis")
+    )
+    api_key = _read_dotenv_value("ORCHESTRATOR_API_KEY", "changethis")
+
+    name = f"perpetuity-orch-e2e-{uuid.uuid4().hex[:8]}"
+
+    # Stop + remove the compose orchestrator so its DNS alias frees up.
+    subprocess.run(
+        ["docker", "compose", "rm", "-sf", "orchestrator"],
+        check=False, capture_output=True, text=True, cwd=REPO_ROOT,
+        timeout=60,
+    )
+
+    args = [
+        "run", "-d",
+        "--name", name,
+        "--network", NETWORK,
+        "--network-alias", _ORCH_DNS_ALIAS,
+        "--privileged",  # MEM136 — losetup inside the container
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "--mount",
+        "type=bind,"
+        "source=/var/lib/perpetuity/workspaces,"
+        "target=/var/lib/perpetuity/workspaces,bind-propagation=rshared",
+        "-v", "/var/lib/perpetuity/vols:/var/lib/perpetuity/vols",
+        "-e", f"WORKSPACE_IMAGE={WORKSPACE_IMAGE}",
+        "-e", f"ORCHESTRATOR_API_KEY={api_key}",
+        "-e", "ORCHESTRATOR_API_KEY_PREVIOUS=",
+        "-e", f"SYSTEM_SETTINGS_ENCRYPTION_KEY={SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST}",
+        "-e", "REDIS_HOST=redis",
+        "-e", f"REDIS_PASSWORD={redis_password}",
+        "-e",
+        f"DATABASE_URL=postgresql://postgres:{pg_password}@db:5432/{pg_db}",
+        ORCH_IMAGE,
+    ]
+    _docker(*args, timeout=60)
+
+    # Probe /v1/health from inside the ephemeral orchestrator (the
+    # M002/S05 pattern — avoids cross-network probing complexity).
+    deadline = time.time() + 30.0
+    healthy = False
+    while time.time() < deadline:
+        probe = subprocess.run(
+            ["docker", "exec", name, "python3", "-c",
+             "import urllib.request; "
+             "import sys; "
+             "r=urllib.request.urlopen('http://127.0.0.1:8001/v1/health',timeout=2); "
+             "sys.exit(0 if r.status==200 else 1)"],
+            check=False, capture_output=True, text=True, timeout=10,
+        )
+        if probe.returncode == 0:
+            healthy = True
+            break
+        time.sleep(0.5)
+    if not healthy:
+        logs = _docker("logs", name, check=False).stdout or ""
+        _docker("rm", "-f", name, check=False)
+        raise AssertionError(
+            f"ephemeral orchestrator {name!r} did not become healthy in 30 s; "
+            f"logs:\n{logs[-4000:]}"
+        )
+
+    try:
+        yield
+    finally:
+        _docker("rm", "-f", name, check=False, timeout=30)
+
+
+# ----- ephemeral sibling celery-worker container -------------------------
+#
+# M005/S02/T06: the AI-button e2e needs a Celery worker process that runs
+# `app.workflows.tasks.run_workflow`. We boot a sibling container off the
+# same `backend:latest` image that the `backend_url` fixture uses, on the
+# same compose network, with the same Postgres + Redis + orchestrator env.
+# Crucially we pin SYSTEM_SETTINGS_ENCRYPTION_KEY to the test Fernet key
+# (above) so the worker's `get_team_secret` call decrypts what the API
+# encrypted from inside the sibling backend.
+
+
+@pytest.fixture
+def celery_worker_url(
+    backend_url: str,  # noqa: ARG001 — depend on backend so it boots first
+) -> Iterator[str]:
+    """Boot a fresh `backend:latest` container running celery worker.
+
+    The fixture depends on `backend_url` so the prestart migrations have
+    already run by the time the worker starts (the worker imports
+    `app.workflows.tasks` which references the s10/s11/s12 tables — a
+    fresh DB without those would crash at first task import).
+
+    Yields the container name (callers usually only need its log stream
+    for the redaction sweep). Teardown reaps any workspace containers
+    spawned by the worker via the orchestrator.
+    """
+    if not _image_present(BACKEND_IMAGE):
+        pytest.skip(
+            f"image {BACKEND_IMAGE!r} missing — run `docker compose build backend`"
+        )
+
+    redis_password = (
+        os.environ.get("REDIS_PASSWORD")
+        or _read_dotenv_value("REDIS_PASSWORD", "changethis")
+    )
+    pg_password = (
+        os.environ.get("POSTGRES_PASSWORD")
+        or _read_dotenv_value("POSTGRES_PASSWORD", "changethis")
+    )
+    pg_db = os.environ.get("POSTGRES_DB", "app")
+    secret_key = _read_dotenv_value("SECRET_KEY", "changethis")
+    api_key = _read_dotenv_value("ORCHESTRATOR_API_KEY", "changethis")
+
+    name = f"perpetuity-celery-e2e-{uuid.uuid4().hex[:8]}"
+
+    env_args = [
+        "-e", "PROJECT_NAME=Perpetuity-e2e",
+        "-e", "DOMAIN=localhost",
+        "-e", "ENVIRONMENT=local",
+        "-e", "FRONTEND_HOST=http://localhost:5173",
+        "-e", "BACKEND_CORS_ORIGINS=http://localhost,http://localhost:5173",
+        "-e", f"SECRET_KEY={secret_key}",
+        "-e", "FIRST_SUPERUSER=admin@example.com",
+        "-e", "FIRST_SUPERUSER_PASSWORD=changethis",
+        "-e", "POSTGRES_SERVER=db",
+        "-e", "POSTGRES_PORT=5432",
+        "-e", f"POSTGRES_DB={pg_db}",
+        "-e", "POSTGRES_USER=postgres",
+        "-e", f"POSTGRES_PASSWORD={pg_password}",
+        "-e", "REDIS_HOST=redis",
+        "-e", f"REDIS_PASSWORD={redis_password}",
+        "-e", "ORCHESTRATOR_BASE_URL=http://orchestrator:8001",
+        "-e", f"ORCHESTRATOR_API_KEY={api_key}",
+        "-e", "ORCHESTRATOR_API_KEY_PREVIOUS=",
+        "-e", f"SYSTEM_SETTINGS_ENCRYPTION_KEY={SYSTEM_SETTINGS_ENCRYPTION_KEY_TEST}",
+        "-e", "EMAILS_FROM_EMAIL=noreply@example.com",
+        "-e", "SMTP_HOST=", "-e", "SMTP_USER=", "-e", "SMTP_PASSWORD=",
+        "-e", "SENTRY_DSN=",
+    ]
+
+    cmd = (
+        "celery -A app.workflows.tasks worker "
+        "--loglevel=info --concurrency=1 -n e2e-worker@%h"
+    )
+    _docker(
+        "run", "-d",
+        "--name", name,
+        "--network", NETWORK,
+        *env_args,
+        "--entrypoint", "bash",
+        BACKEND_IMAGE,
+        "-c", cmd,
+        timeout=60,
+    )
+
+    # Wait until the worker has emitted the canonical "ready." line.
+    # Celery prints `celery@<hostname> ready.` at the end of mingle/gossip
+    # handshake. The hostname includes a docker-generated container short
+    # id so we don't anchor on the worker name — we just look for the
+    # literal " ready." suffix that always lands once boot completes.
+    # 60 s budget is generous; a healthy worker reaches ready in ~5 s,
+    # but mingle discovery can stretch when redis is loaded.
+    deadline = time.time() + 60.0
+    ready = False
+    while time.time() < deadline:
+        r = _docker("logs", name, check=False, timeout=10)
+        log_blob = (r.stdout or "") + (r.stderr or "")
+        # Celery's exact line ends with "<worker_name>@<host> ready."
+        # We pass `-n e2e-worker@%h` so the worker_name segment is
+        # `e2e-worker` (not the default `celery`). Match the suffix shape
+        # rather than anchoring on the celery@ prefix.
+        if re.search(r"e2e-worker@\S+ ready\.", log_blob):
+            ready = True
+            break
+        time.sleep(0.5)
+    if not ready:
+        logs_text = (
+            (_docker("logs", name, check=False).stdout or "")
+            + "\n--- stderr ---\n"
+            + (_docker("logs", name, check=False).stderr or "")
+        )
+        _docker("rm", "-f", name, check=False)
+        raise AssertionError(
+            f"celery worker {name!r} never reached ready state in 60 s; "
+            f"last logs:\n{logs_text[-4000:]}"
+        )
+
+    try:
+        yield name
+    finally:
         _docker("rm", "-f", name, check=False, timeout=30)
