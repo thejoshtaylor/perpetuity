@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "unitId": "M005-sqm8et/S05/T04",
+  "timestamp": 1777458376741,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd frontend",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2,
+  "postExecutionChecks": [
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:18",
+      "passed": false,
+      "message": "Import './routes/invite.$code' in frontend/src/routeTree.gen.ts:18 does not resolve to an existing file",
+      "blocking": true
+    },
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:25",
+      "passed": false,
+      "message": "Import './routes/_layout/workflows_.$workflowId' in frontend/src/routeTree.gen.ts:25 does not resolve to an existing file",
+      "blocking": true
+    },
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:26",
+      "passed": false,
+      "message": "Import './routes/_layout/teams_.$teamId' in frontend/src/routeTree.gen.ts:26 does not resolve to an existing file",
+      "blocking": true
+    },
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:27",
+      "passed": false,
+      "message": "Import './routes/_layout/runs_.$runId' in frontend/src/routeTree.gen.ts:27 does not resolve to an existing file",
+      "blocking": true
+    },
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:28",
+      "passed": false,
+      "message": "Import './routes/_layout/admin_.teams' in frontend/src/routeTree.gen.ts:28 does not resolve to an existing file",
+      "blocking": true
+    },
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:29",
+      "passed": false,
+      "message": "Import './routes/_layout/admin.settings' in frontend/src/routeTree.gen.ts:29 does not resolve to an existing file",
+      "blocking": true
+    },
+    {
+      "category": "import",
+      "target": "frontend/src/routeTree.gen.ts:30",
+      "passed": false,
+      "message": "Import './routes/_layout/admin.teams_.$teamId' in frontend/src/routeTree.gen.ts:30 does not resolve to an existing file",
+      "blocking": true
+    }
+  ]
+}

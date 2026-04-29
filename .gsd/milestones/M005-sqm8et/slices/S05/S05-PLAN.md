@@ -84,7 +84,7 @@ Why/Files/Do/Verify/Done-when:
   - Files: `frontend/src/routes/_layout/runs.tsx`
   - Verify: cd frontend && npm run build 2>&1 | tail -5
 
-- [ ] **T05: E2e integration test suite (test_m005_s05_run_history_admin_e2e.py)** `est:60m`
+- [x] **T05: E2e integration test suite (test_m005_s05_run_history_admin_e2e.py)** `est:60m`
   Write backend/tests/integration/test_m005_s05_run_history_admin_e2e.py covering the full S05 surface against a live compose stack. Follow the exact pattern established in test_m005_s03_workflow_run_engine_e2e.py and test_m005_s04_webhook_dispatch_e2e.py: pytestmark = pytest.mark.e2e, skip if PERPETUITY_E2E_STACK not set, use the shared conftest compose fixtures.
 
 Required test functions (5 minimum):
