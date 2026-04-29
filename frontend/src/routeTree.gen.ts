@@ -16,10 +16,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
+import { Route as LayoutWorkflowsRouteImport } from './routes/_layout/workflows'
 import { Route as LayoutTeamsRouteImport } from './routes/_layout/teams'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutWorkflowsWorkflowIdRouteImport } from './routes/_layout/workflows_.$workflowId'
 import { Route as LayoutTeamsTeamIdRouteImport } from './routes/_layout/teams_.$teamId'
 import { Route as LayoutRunsRunIdRouteImport } from './routes/_layout/runs_.$runId'
 import { Route as LayoutAdminTeamsRouteImport } from './routes/_layout/admin_.teams'
@@ -60,6 +62,11 @@ const InviteCodeRoute = InviteCodeRouteImport.update({
   path: '/invite/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LayoutWorkflowsRoute = LayoutWorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutTeamsRoute = LayoutTeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
@@ -80,6 +87,12 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutWorkflowsWorkflowIdRoute =
+  LayoutWorkflowsWorkflowIdRouteImport.update({
+    id: '/workflows_/$workflowId',
+    path: '/workflows/$workflowId',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 const LayoutTeamsTeamIdRoute = LayoutTeamsTeamIdRouteImport.update({
   id: '/teams_/$teamId',
   path: '/teams/$teamId',
@@ -116,11 +129,13 @@ export interface FileRoutesByFullPath {
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
+  '/workflows': typeof LayoutWorkflowsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/admin/settings': typeof LayoutAdminSettingsRoute
   '/admin/teams': typeof LayoutAdminTeamsRoute
   '/runs/$runId': typeof LayoutRunsRunIdRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/workflows/$workflowId': typeof LayoutWorkflowsWorkflowIdRoute
   '/admin/teams/$teamId': typeof LayoutAdminTeamsTeamIdRoute
 }
 export interface FileRoutesByTo {
@@ -132,12 +147,14 @@ export interface FileRoutesByTo {
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/teams': typeof LayoutTeamsRoute
+  '/workflows': typeof LayoutWorkflowsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/': typeof LayoutIndexRoute
   '/admin/settings': typeof LayoutAdminSettingsRoute
   '/admin/teams': typeof LayoutAdminTeamsRoute
   '/runs/$runId': typeof LayoutRunsRunIdRoute
   '/teams/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/workflows/$workflowId': typeof LayoutWorkflowsWorkflowIdRoute
   '/admin/teams/$teamId': typeof LayoutAdminTeamsTeamIdRoute
 }
 export interface FileRoutesById {
@@ -151,12 +168,14 @@ export interface FileRoutesById {
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/teams': typeof LayoutTeamsRoute
+  '/_layout/workflows': typeof LayoutWorkflowsRoute
   '/invite/$code': typeof InviteCodeRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/admin/settings': typeof LayoutAdminSettingsRoute
   '/_layout/admin_/teams': typeof LayoutAdminTeamsRoute
   '/_layout/runs_/$runId': typeof LayoutRunsRunIdRoute
   '/_layout/teams_/$teamId': typeof LayoutTeamsTeamIdRoute
+  '/_layout/workflows_/$workflowId': typeof LayoutWorkflowsWorkflowIdRoute
   '/_layout/admin/teams_/$teamId': typeof LayoutAdminTeamsTeamIdRoute
 }
 export interface FileRouteTypes {
@@ -171,11 +190,13 @@ export interface FileRouteTypes {
     | '/items'
     | '/settings'
     | '/teams'
+    | '/workflows'
     | '/invite/$code'
     | '/admin/settings'
     | '/admin/teams'
     | '/runs/$runId'
     | '/teams/$teamId'
+    | '/workflows/$workflowId'
     | '/admin/teams/$teamId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -187,12 +208,14 @@ export interface FileRouteTypes {
     | '/items'
     | '/settings'
     | '/teams'
+    | '/workflows'
     | '/invite/$code'
     | '/'
     | '/admin/settings'
     | '/admin/teams'
     | '/runs/$runId'
     | '/teams/$teamId'
+    | '/workflows/$workflowId'
     | '/admin/teams/$teamId'
   id:
     | '__root__'
@@ -205,12 +228,14 @@ export interface FileRouteTypes {
     | '/_layout/items'
     | '/_layout/settings'
     | '/_layout/teams'
+    | '/_layout/workflows'
     | '/invite/$code'
     | '/_layout/'
     | '/_layout/admin/settings'
     | '/_layout/admin_/teams'
     | '/_layout/runs_/$runId'
     | '/_layout/teams_/$teamId'
+    | '/_layout/workflows_/$workflowId'
     | '/_layout/admin/teams_/$teamId'
   fileRoutesById: FileRoutesById
 }
@@ -274,6 +299,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_layout/workflows': {
+      id: '/_layout/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof LayoutWorkflowsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/teams': {
       id: '/_layout/teams'
       path: '/teams'
@@ -300,6 +332,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof LayoutAdminRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/workflows_/$workflowId': {
+      id: '/_layout/workflows_/$workflowId'
+      path: '/workflows/$workflowId'
+      fullPath: '/workflows/$workflowId'
+      preLoaderRoute: typeof LayoutWorkflowsWorkflowIdRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/teams_/$teamId': {
@@ -359,10 +398,12 @@ interface LayoutRouteChildren {
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutTeamsRoute: typeof LayoutTeamsRoute
+  LayoutWorkflowsRoute: typeof LayoutWorkflowsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutAdminTeamsRoute: typeof LayoutAdminTeamsRoute
   LayoutRunsRunIdRoute: typeof LayoutRunsRunIdRoute
   LayoutTeamsTeamIdRoute: typeof LayoutTeamsTeamIdRoute
+  LayoutWorkflowsWorkflowIdRoute: typeof LayoutWorkflowsWorkflowIdRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
@@ -370,10 +411,12 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutTeamsRoute: LayoutTeamsRoute,
+  LayoutWorkflowsRoute: LayoutWorkflowsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
   LayoutAdminTeamsRoute: LayoutAdminTeamsRoute,
   LayoutRunsRunIdRoute: LayoutRunsRunIdRoute,
   LayoutTeamsTeamIdRoute: LayoutTeamsTeamIdRoute,
+  LayoutWorkflowsWorkflowIdRoute: LayoutWorkflowsWorkflowIdRoute,
 }
 
 const LayoutRouteWithChildren =

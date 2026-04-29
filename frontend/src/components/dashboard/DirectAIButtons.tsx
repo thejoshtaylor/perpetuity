@@ -3,16 +3,12 @@ import { useNavigate } from "@tanstack/react-router"
 import { Bot, Sparkles } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
-
-import {
-  type ApiError,
-  WorkflowsService,
-} from "@/client"
 import {
   type DirectAIKind,
   findDirectAIWorkflow,
   teamWorkflowsQueryOptions,
 } from "@/api/workflows"
+import { type ApiError, WorkflowsService } from "@/client"
 import PromptDialog from "@/components/dashboard/PromptDialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -87,7 +83,8 @@ export function DirectAIButtons({ teamId }: Props) {
     },
     onError: (err) => {
       toast.error("Failed to dispatch run", {
-        description: extractDetail(err) ?? (err as Error).message ?? "Unknown error",
+        description:
+          extractDetail(err) ?? (err as Error).message ?? "Unknown error",
       })
     },
   })

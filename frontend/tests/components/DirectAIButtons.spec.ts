@@ -55,57 +55,58 @@ async function stubTeamsEnvelope(page: Page, teamId: string) {
  * its error state. We don't care about that surface here, so return an
  * empty list. */
 async function stubTeamSecrets(page: Page, teamId: string) {
-  await page.route(
-    `**/api/v1/teams/${teamId}/secrets`,
-    async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([
-          { key: "claude_api_key", has_value: false, sensitive: true, updated_at: null },
-          { key: "openai_api_key", has_value: false, sensitive: true, updated_at: null },
-        ]),
-      })
-    },
-  )
+  await page.route(`**/api/v1/teams/${teamId}/secrets`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          key: "claude_api_key",
+          has_value: false,
+          sensitive: true,
+          updated_at: null,
+        },
+        {
+          key: "openai_api_key",
+          has_value: false,
+          sensitive: true,
+          updated_at: null,
+        },
+      ]),
+    })
+  })
 }
 
 /** The team-detail route also renders MembersList and ProjectsList which
  * fetch their own data. Stub them to empty so the page settles instead of
  * hanging on Suspense boundaries. */
 async function stubTeamSiblings(page: Page, teamId: string) {
-  await page.route(
-    `**/api/v1/teams/${teamId}/members`,
-    async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ data: [], count: 0 }),
-      })
-    },
-  )
-  await page.route(
-    `**/api/v1/teams/${teamId}/projects`,
-    async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ data: [], count: 0 }),
-      })
-    },
-  )
+  await page.route(`**/api/v1/teams/${teamId}/members`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [], count: 0 }),
+    })
+  })
+  await page.route(`**/api/v1/teams/${teamId}/projects`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [], count: 0 }),
+    })
+  })
   await page.route(
     `**/api/v1/teams/${teamId}/github/installations`,
     async (route) => {
@@ -125,44 +126,41 @@ async function stubTeamSiblings(page: Page, teamId: string) {
 /** Stub `GET /api/v1/teams/{team_id}/workflows` to return the two
  * auto-seeded direct-AI rows. */
 async function stubWorkflowsList(page: Page, teamId: string) {
-  await page.route(
-    `**/api/v1/teams/${teamId}/workflows`,
-    async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          data: [
-            {
-              id: FAKE_CLAUDE_WF_ID,
-              team_id: teamId,
-              name: "_direct_claude",
-              description: null,
-              scope: "team",
-              system_owned: true,
-              created_at: "2026-04-29T00:00:00Z",
-              updated_at: null,
-            },
-            {
-              id: FAKE_CODEX_WF_ID,
-              team_id: teamId,
-              name: "_direct_codex",
-              description: null,
-              scope: "team",
-              system_owned: true,
-              created_at: "2026-04-29T00:00:00Z",
-              updated_at: null,
-            },
-          ],
-          count: 2,
-        }),
-      })
-    },
-  )
+  await page.route(`**/api/v1/teams/${teamId}/workflows`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: [
+          {
+            id: FAKE_CLAUDE_WF_ID,
+            team_id: teamId,
+            name: "_direct_claude",
+            description: null,
+            scope: "team",
+            system_owned: true,
+            created_at: "2026-04-29T00:00:00Z",
+            updated_at: null,
+          },
+          {
+            id: FAKE_CODEX_WF_ID,
+            team_id: teamId,
+            name: "_direct_codex",
+            description: null,
+            scope: "team",
+            system_owned: true,
+            created_at: "2026-04-29T00:00:00Z",
+            updated_at: null,
+          },
+        ],
+        count: 2,
+      }),
+    })
+  })
 }
 
 /** Stub the polled run-detail endpoint so the dispatch flow can land on
@@ -173,52 +171,49 @@ async function stubRunDetail(
   teamId: string,
   workflowId: string,
 ) {
-  await page.route(
-    `**/api/v1/workflow_runs/${runId}`,
-    async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: runId,
-          workflow_id: workflowId,
-          team_id: teamId,
-          trigger_type: "button",
-          triggered_by_user_id: null,
-          target_user_id: null,
-          trigger_payload: { prompt: "List the files in this repo" },
-          status: "pending",
-          error_class: null,
-          started_at: null,
-          finished_at: null,
-          duration_ms: null,
-          last_heartbeat_at: null,
-          created_at: "2026-04-29T00:00:00Z",
-          step_runs: [
-            {
-              id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-              workflow_run_id: runId,
-              step_index: 0,
-              snapshot: { action: "claude", config: {} },
-              status: "pending",
-              stdout: "",
-              stderr: "",
-              exit_code: null,
-              error_class: null,
-              duration_ms: null,
-              started_at: null,
-              finished_at: null,
-              created_at: "2026-04-29T00:00:00Z",
-            },
-          ],
-        }),
-      })
-    },
-  )
+  await page.route(`**/api/v1/workflow_runs/${runId}`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: runId,
+        workflow_id: workflowId,
+        team_id: teamId,
+        trigger_type: "button",
+        triggered_by_user_id: null,
+        target_user_id: null,
+        trigger_payload: { prompt: "List the files in this repo" },
+        status: "pending",
+        error_class: null,
+        started_at: null,
+        finished_at: null,
+        duration_ms: null,
+        last_heartbeat_at: null,
+        created_at: "2026-04-29T00:00:00Z",
+        step_runs: [
+          {
+            id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            workflow_run_id: runId,
+            step_index: 0,
+            snapshot: { action: "claude", config: {} },
+            status: "pending",
+            stdout: "",
+            stderr: "",
+            exit_code: null,
+            error_class: null,
+            duration_ms: null,
+            started_at: null,
+            finished_at: null,
+            created_at: "2026-04-29T00:00:00Z",
+          },
+        ],
+      }),
+    })
+  })
 }
 
 async function gotoStubbedTeamDetail(page: Page, teamId: string) {
@@ -380,9 +375,7 @@ test.describe("DirectAIButtons — dispatch flow", () => {
 
     // Toast surfaces the discriminator. The dialog stays open so the user
     // can retry or cancel.
-    await expect(
-      page.getByText(/task_dispatch_failed/i).first(),
-    ).toBeVisible()
+    await expect(page.getByText(/task_dispatch_failed/i).first()).toBeVisible()
     await expect(
       page.getByTestId("direct-ai-prompt-dialog-claude"),
     ).toBeVisible()

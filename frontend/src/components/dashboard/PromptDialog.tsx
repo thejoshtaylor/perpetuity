@@ -79,8 +79,9 @@ export function PromptDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Enter a prompt to send to the {kind === "claude" ? "Claude" : "Codex"}
-            {" "}CLI inside this team's workspace container.
+            Enter a prompt to send to the{" "}
+            {kind === "claude" ? "Claude" : "Codex"} CLI inside this team's
+            workspace container.
           </DialogDescription>
         </DialogHeader>
 

@@ -1833,6 +1833,12 @@ export const VoiceTranscribeResponseSchema = {
     title: 'VoiceTranscribeResponse'
 } as const;
 
+export const WorkflowActionSchema = {
+    type: 'string',
+    enum: ['claude', 'codex', 'shell', 'git'],
+    title: 'WorkflowAction'
+} as const;
+
 export const WorkflowPublicSchema = {
     properties: {
         id: {
@@ -1866,6 +1872,28 @@ export const WorkflowPublicSchema = {
         system_owned: {
             type: 'boolean',
             title: 'System Owned'
+        },
+        form_schema: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Form Schema'
+        },
+        target_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Target User Id'
+        },
+        round_robin_cursor: {
+            type: 'integer',
+            title: 'Round Robin Cursor',
+            default: 0
         },
         created_at: {
             anyOf: [
@@ -2035,6 +2063,30 @@ export const WorkflowRunPublicSchema = {
             ],
             title: 'Last Heartbeat At'
         },
+        cancelled_by_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cancelled By User Id'
+        },
+        cancelled_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cancelled At'
+        },
         created_at: {
             anyOf: [
                 {
@@ -2078,6 +2130,163 @@ export const WorkflowScopeSchema = {
     title: 'WorkflowScope'
 } as const;
 
+export const WorkflowStepPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        workflow_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Workflow Id'
+        },
+        step_index: {
+            type: 'integer',
+            title: 'Step Index'
+        },
+        action: {
+            '$ref': '#/components/schemas/WorkflowAction'
+        },
+        config: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Config'
+        },
+        target_container: {
+            '$ref': '#/components/schemas/WorkflowStepTargetContainer',
+            default: 'user_workspace'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'workflow_id', 'step_index', 'action', 'config'],
+    title: 'WorkflowStepPublic'
+} as const;
+
+export const WorkflowStepTargetContainerSchema = {
+    type: 'string',
+    enum: ['user_workspace', 'team_mirror'],
+    title: 'WorkflowStepTargetContainer'
+} as const;
+
+export const WorkflowWithStepsPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        team_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Team Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        scope: {
+            '$ref': '#/components/schemas/WorkflowScope'
+        },
+        system_owned: {
+            type: 'boolean',
+            title: 'System Owned'
+        },
+        form_schema: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Form Schema'
+        },
+        target_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Target User Id'
+        },
+        round_robin_cursor: {
+            type: 'integer',
+            title: 'Round Robin Cursor',
+            default: 0
+        },
+        steps: {
+            items: {
+                '$ref': '#/components/schemas/WorkflowStepPublic'
+            },
+            type: 'array',
+            title: 'Steps'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'team_id', 'name', 'scope', 'system_owned', 'steps'],
+    title: 'WorkflowWithStepsPublic'
+} as const;
+
 export const WorkflowsPublicSchema = {
     properties: {
         data: {
@@ -2095,4 +2304,164 @@ export const WorkflowsPublicSchema = {
     type: 'object',
     required: ['data', 'count'],
     title: 'WorkflowsPublic'
+} as const;
+
+export const _WorkflowCreateBodySchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        scope: {
+            type: 'string',
+            title: 'Scope',
+            default: 'user'
+        },
+        target_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Target User Id'
+        },
+        form_schema: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Form Schema'
+        },
+        steps: {
+            items: {
+                '$ref': '#/components/schemas/_WorkflowStepCreateBody'
+            },
+            type: 'array',
+            title: 'Steps'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: '_WorkflowCreateBody'
+} as const;
+
+export const _WorkflowStepCreateBodySchema = {
+    properties: {
+        step_index: {
+            type: 'integer',
+            title: 'Step Index'
+        },
+        action: {
+            type: 'string',
+            title: 'Action'
+        },
+        config: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Config'
+        },
+        target_container: {
+            type: 'string',
+            title: 'Target Container',
+            default: 'user_workspace'
+        }
+    },
+    type: 'object',
+    required: ['step_index', 'action'],
+    title: '_WorkflowStepCreateBody'
+} as const;
+
+export const _WorkflowUpdateBodySchema = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        scope: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope'
+        },
+        target_user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Target User Id'
+        },
+        form_schema: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Form Schema'
+        },
+        steps: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/_WorkflowStepCreateBody'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Steps'
+        }
+    },
+    type: 'object',
+    title: '_WorkflowUpdateBody'
 } as const;

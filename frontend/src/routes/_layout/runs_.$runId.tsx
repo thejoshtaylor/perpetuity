@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { AlertCircle, ChevronLeft, Loader2 } from "lucide-react"
-
-import { type StepRunPublic, type WorkflowRunPublic } from "@/client"
-import { isRunInFlight, workflowRunQueryOptions } from "@/api/workflows"
+import { AlertCircle, ChevronLeft, Loader2, XCircle } from "lucide-react"
+import { toast } from "sonner"
+import { isRunInFlight, workflowRunQueryKey, workflowRunQueryOptions } from "@/api/workflows"
+import type { StepRunPublic, WorkflowRunPublic } from "@/client"
+import { WorkflowsService } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -162,6 +163,36 @@ function StepRow({ step }: { step: StepRunPublic }) {
 }
 
 function RunDetailContent({ runId }: { runId: string }) {
+  const qc = useQueryClient()
+
+  const cancelMutation = useMutation({
+    mutationFn: () => WorkflowsService.cancelWorkflowRun({ runId }),
+    onMutate: async () => {
+      // Optimistically set the displayed status to 'cancelling' so the UI
+      // reflects in-flight intent while the backend stamps 'cancelled'.
+      await qc.cancelQueries({ queryKey: workflowRunQueryKey(runId) })
+      const prev = qc.getQueryData<WorkflowRunPublic>(workflowRunQueryKey(runId))
+      if (prev) {
+        qc.setQueryData(workflowRunQueryKey(runId), {
+          ...prev,
+          status: "cancelled" as const,
+        })
+      }
+      return { prev }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(workflowRunQueryKey(runId), ctx.prev)
+      }
+      toast.error("Cancel failed", {
+        description: "The run could not be cancelled.",
+      })
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: workflowRunQueryKey(runId) })
+    },
+  })
+
   const query = useQuery({
     ...workflowRunQueryOptions(runId),
     refetchInterval: (q) => {
@@ -246,6 +277,18 @@ function RunDetailContent({ runId }: { runId: string }) {
             aria-label="Polling"
           />
         )}
+        {inFlight && (
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="run-cancel-button"
+            onClick={() => cancelMutation.mutate()}
+            disabled={cancelMutation.isPending}
+          >
+            <XCircle className="h-4 w-4 text-destructive" />
+            Cancel run
+          </Button>
+        )}
         {run.error_class && (
           <Badge
             variant="destructive"
@@ -268,19 +311,13 @@ function RunDetailContent({ runId }: { runId: string }) {
         </div>
         <div className="flex flex-col">
           <span className="text-muted-foreground text-xs">Started</span>
-          <span
-            className="text-sm"
-            data-testid="run-detail-started-at"
-          >
+          <span className="text-sm" data-testid="run-detail-started-at">
             {formatTimestamp(run.started_at)}
           </span>
         </div>
         <div className="flex flex-col">
           <span className="text-muted-foreground text-xs">Finished</span>
-          <span
-            className="text-sm"
-            data-testid="run-detail-finished-at"
-          >
+          <span className="text-sm" data-testid="run-detail-finished-at">
             {formatTimestamp(run.finished_at)}
           </span>
         </div>

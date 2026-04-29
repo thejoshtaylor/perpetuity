@@ -31,7 +31,7 @@ const PUBLIC_ROUTES = new Set([
 
 const handleApiError = (error: Error) => {
   if (!(error instanceof ApiError)) return
-  if (![401, 403].includes(error.status)) return
+  if (error.status !== 401) return
   if (PUBLIC_ROUTES.has(window.location.pathname)) return
   // Cookies are httpOnly — there is no client-side token to clear. The
   // backend's Set-Cookie on logout / expiry is the source of truth, so the

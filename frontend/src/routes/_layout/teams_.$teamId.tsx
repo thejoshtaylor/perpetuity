@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Suspense } from "react"
 
 import { TeamsService, type TeamWithRole, UsersService } from "@/client"
+import CustomWorkflowButtons from "@/components/dashboard/CustomWorkflowButtons"
 import DirectAIButtons from "@/components/dashboard/DirectAIButtons"
 import ConnectionsList from "@/components/Teams/GitHub/ConnectionsList"
 import InviteButton from "@/components/Teams/InviteButton"
@@ -138,6 +139,15 @@ function TeamDetailContent() {
       >
         <h2 className="text-sm font-medium">Run AI assistant</h2>
         <DirectAIButtons teamId={team.id} />
+      </section>
+
+      <section
+        className="flex flex-col gap-2"
+        data-testid="custom-workflows-section"
+        aria-label="Custom workflows"
+      >
+        <h2 className="text-sm font-medium">Custom workflows</h2>
+        <CustomWorkflowButtons teamId={team.id} />
       </section>
 
       <section

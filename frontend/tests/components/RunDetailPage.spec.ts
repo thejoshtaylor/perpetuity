@@ -18,18 +18,8 @@ const TEAM_ID = "55555555-5555-5555-5555-555555555555"
 const WF_ID = "66666666-6666-6666-6666-666666666666"
 const STEP_ID = "77777777-7777-7777-7777-777777777777"
 
-type RunStatus =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "cancelled"
-type StepStatus =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "skipped"
+type RunStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled"
+type StepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped"
 
 type RunFixture = {
   status: RunStatus
@@ -90,22 +80,19 @@ async function installSteppedRunRoute(
   steps: RunFixture[],
 ): Promise<{ getCallCount: () => number }> {
   let callCount = 0
-  await page.route(
-    `**/api/v1/workflow_runs/${RUN_ID}`,
-    async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback()
-        return
-      }
-      const idx = Math.min(callCount, steps.length - 1)
-      callCount += 1
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(buildRunBody(steps[idx])),
-      })
-    },
-  )
+  await page.route(`**/api/v1/workflow_runs/${RUN_ID}`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback()
+      return
+    }
+    const idx = Math.min(callCount, steps.length - 1)
+    callCount += 1
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(buildRunBody(steps[idx])),
+    })
+  })
   return { getCallCount: () => callCount }
 }
 
@@ -208,7 +195,10 @@ test.describe("RunDetailPage — polled status transitions", () => {
     // Run-level error_class badge.
     const runError = page.getByTestId("run-detail-error-class")
     await expect(runError).toBeVisible()
-    await expect(runError).toHaveAttribute("data-error-class", "missing_team_secret")
+    await expect(runError).toHaveAttribute(
+      "data-error-class",
+      "missing_team_secret",
+    )
     // Step-level error_class is rendered with the alert icon.
     const stepError = page.getByTestId("step-run-error-class-0")
     await expect(stepError).toBeVisible()
@@ -248,28 +238,23 @@ test.describe("RunDetailPage — polled status transitions", () => {
   test("404 from the API renders the 'Run not found' card", async ({
     page,
   }) => {
-    await page.route(
-      `**/api/v1/workflow_runs/${RUN_ID}`,
-      async (route) => {
-        if (route.request().method() !== "GET") {
-          await route.fallback()
-          return
-        }
-        await route.fulfill({
-          status: 404,
-          contentType: "application/json",
-          body: JSON.stringify({
-            detail: { detail: "workflow_run_not_found" },
-          }),
-        })
-      },
-    )
+    await page.route(`**/api/v1/workflow_runs/${RUN_ID}`, async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: { detail: "workflow_run_not_found" },
+        }),
+      })
+    })
 
     await page.goto(`/runs/${RUN_ID}`)
 
     await expect(page.getByTestId("run-detail-error")).toBeVisible()
-    await expect(
-      page.getByText(/Run not found/i).first(),
-    ).toBeVisible()
+    await expect(page.getByText(/Run not found/i).first()).toBeVisible()
   })
 })
