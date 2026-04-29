@@ -17,6 +17,7 @@ from app.api.routes import (
     users,
     utils,
     voice,
+    workflows,
     ws,
 )
 from app.core.config import settings
@@ -38,6 +39,7 @@ api_router.include_router(projects.router)
 api_router.include_router(notifications.router)
 api_router.include_router(push.router)
 api_router.include_router(voice.router)
+api_router.include_router(workflows.router)
 
 
 if settings.ENVIRONMENT == "local":

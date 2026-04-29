@@ -229,6 +229,50 @@ services:
       context: .
       dockerfile: backend/Dockerfile
 
+  # M005/S02/T04: Celery worker that drives `workflow_runs` from
+  # pending → running → succeeded|failed. Same image as `backend` so the
+  # source tree (app.workflows.tasks, app.workflows.executors.ai) is shared
+  # without bundling. Reads the broker URL from REDIS_HOST/REDIS_PORT/
+  # REDIS_PASSWORD just like the rate limiter and orchestrator. Per D005
+  # this service does NOT mount the Docker socket — the executor talks to
+  # the orchestrator over HTTP and the orchestrator owns docker.
+  celery-worker:
+    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    restart: always
+    networks:
+      - default
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+      prestart:
+        condition: service_completed_successfully
+    command: celery -A app.workflows.tasks worker --loglevel=info --concurrency=4
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}
+      - SECRET_KEY=${SECRET_KEY?Variable not set}
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD?Variable not set}
+      - ORCHESTRATOR_BASE_URL=${ORCHESTRATOR_BASE_URL-http://orchestrator:8001}
+      - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY?Variable not set}
+      # D016 two-key shared-secret discipline — same Fernet key as the
+      # backend so `get_team_secret` decrypts what the API encrypted.
+      - SYSTEM_SETTINGS_ENCRYPTION_KEY=${SYSTEM_SETTINGS_ENCRYPTION_KEY?Variable not set}
+      - SENTRY_DSN=${SENTRY_DSN}
+
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
     restart: always

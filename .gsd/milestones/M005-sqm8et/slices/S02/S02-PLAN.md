@@ -66,7 +66,7 @@ Assumptions documented inline: (1) `workflow_runs.scope` is omitted — it lives
   - Files: `backend/app/core/celery_app.py`, `backend/app/workflows/__init__.py`, `backend/app/workflows/executors/__init__.py`, `backend/app/workflows/executors/ai.py`, `backend/app/workflows/tasks.py`, `backend/tests/api/test_workflow_executor_ai.py`, `backend/tests/api/test_workflow_runner.py`
   - Verify: cd backend && POSTGRES_DB=perpetuity_app uv run pytest tests/api/test_workflow_executor_ai.py tests/api/test_workflow_runner.py -v
 
-- [ ] **T04: Workflow trigger + run-detail API + compose celery-worker service** `est:1 day`
+- [x] **T04: Workflow trigger + run-detail API + compose celery-worker service** `est:1 day`
   Backend HTTP boundary the dashboard calls plus the compose service that runs the Celery worker.
 
 (1) `backend/app/api/routes/workflows.py`: new router. `POST /api/v1/workflows/{workflow_id}/run` — body `{trigger_payload: dict}` where for `_direct_claude` / `_direct_codex` the payload is `{prompt: str}`. Caller must be a member of the workflow's team (use existing `assert_caller_is_team_member`). Inserts `workflow_runs` row with status='pending', trigger_type='button', triggered_by_user_id=current_user.id, target_user_id=current_user.id (S02 scope='user'), trigger_payload as-is. Inserts `step_runs` rows from `workflow_steps` snapshot — each with status='pending', snapshot=row.dict() at dispatch time. Commits. Then dispatches `run_workflow.delay(run_id)`. Returns `{run_id: UUID, status: 'pending'}`. Failure modes: workflow_id not found → 404 `workflow_not_found`; non-member → 403 `not_team_member`; missing prompt for AI workflow → 400 `missing_required_field`. Logs `workflow_run_dispatched run_id workflow_id trigger_type=button`.
