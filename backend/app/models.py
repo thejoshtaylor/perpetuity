@@ -1072,6 +1072,32 @@ class WorkflowAction(str, enum.Enum):
     git = "git"
 
 
+# S03: per-step container target. 'team_mirror' is reserved for S04 but the
+# column lands in s13 so S04 does not need an ALTER.
+class WorkflowStepTargetContainer(str, enum.Enum):
+    user_workspace = "user_workspace"
+    team_mirror = "team_mirror"
+
+
+# S03: form-field shape within workflows.form_schema. kind drives the
+# input type rendered on the dashboard trigger form.
+class WorkflowFormFieldKind(str, enum.Enum):
+    string = "string"
+    text = "text"
+    number = "number"
+
+
+class WorkflowFormField(SQLModel):
+    name: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=128)
+    kind: WorkflowFormFieldKind = WorkflowFormFieldKind.string
+    required: bool = False
+
+
+class WorkflowFormSchema(SQLModel):
+    fields: list[WorkflowFormField] = Field(default_factory=list)
+
+
 class Workflow(SQLModel, table=True):
     __tablename__ = "workflows"
     __table_args__ = (
@@ -1092,6 +1118,20 @@ class Workflow(SQLModel, table=True):
     description: str | None = Field(default=None, nullable=True)
     scope: str = Field(default="user", max_length=32, nullable=False)
     system_owned: bool = Field(default=False, nullable=False)
+    # S03 additions (s13 migration)
+    form_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="'{}'::jsonb"),
+    )
+    target_user_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    round_robin_cursor: int = Field(
+        default=0, sa_column=Column(BigInteger, nullable=False, server_default="0")
+    )
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -1120,6 +1160,10 @@ class WorkflowStep(SQLModel, table=True):
             "action IN ('claude', 'codex', 'shell', 'git')",
             name="ck_workflow_steps_action",
         ),
+        CheckConstraint(
+            "target_container IN ('user_workspace', 'team_mirror')",
+            name="ck_workflow_steps_target_container",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -1134,6 +1178,10 @@ class WorkflowStep(SQLModel, table=True):
     config: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB, nullable=False, server_default="'{}'::jsonb"),
+    )
+    # S03 addition (s13 migration)
+    target_container: str = Field(
+        default="user_workspace", max_length=32, nullable=False
     )
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
@@ -1153,8 +1201,37 @@ class WorkflowStepPublic(SQLModel):
     # frontend client picks them up as a TS string-literal union.
     action: WorkflowAction
     config: dict[str, Any]
+    # Typed as the enum so OpenAPI emits the two container literal values.
+    target_container: WorkflowStepTargetContainer = WorkflowStepTargetContainer.user_workspace
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+# S03 CRUD input DTOs. system_owned is always False on CRUD-created rows —
+# only the seed helper (workflows_seed.py / s12 migration) writes True.
+class WorkflowStepCreate(SQLModel):
+    step_index: int = Field(ge=0)
+    action: WorkflowAction
+    config: dict[str, Any] = Field(default_factory=dict)
+    target_container: WorkflowStepTargetContainer = WorkflowStepTargetContainer.user_workspace
+
+
+class WorkflowCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    scope: WorkflowScope = WorkflowScope.user
+    target_user_id: uuid.UUID | None = None
+    form_schema: WorkflowFormSchema = Field(default_factory=WorkflowFormSchema)
+    steps: list[WorkflowStepCreate] = Field(default_factory=list)
+
+
+class WorkflowUpdate(SQLModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    scope: WorkflowScope | None = None
+    target_user_id: uuid.UUID | None = None
+    form_schema: WorkflowFormSchema | None = None
+    steps: list[WorkflowStepCreate] | None = None
 
 
 class WorkflowPublic(SQLModel):
@@ -1165,6 +1242,9 @@ class WorkflowPublic(SQLModel):
     # Typed as the enum so OpenAPI emits the three literal scope values.
     scope: WorkflowScope
     system_owned: bool
+    form_schema: dict[str, Any] = Field(default_factory=dict)
+    target_user_id: uuid.UUID | None = None
+    round_robin_cursor: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -1185,6 +1265,9 @@ class WorkflowWithStepsPublic(SQLModel):
     description: str | None = None
     scope: WorkflowScope
     system_owned: bool
+    form_schema: dict[str, Any] = Field(default_factory=dict)
+    target_user_id: uuid.UUID | None = None
+    round_robin_cursor: int = 0
     steps: list[WorkflowStepPublic]
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -1279,6 +1362,18 @@ class WorkflowRun(SQLModel, table=True):
         default=None, sa_column=Column(BigInteger, nullable=True)
     )
     last_heartbeat_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    # S03 additions (s13 migration) — cancellation audit
+    cancelled_by_user_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+    cancelled_at: datetime | None = Field(
         default=None,
         sa_type=DateTime(timezone=True),  # type: ignore
         nullable=True,
@@ -1380,6 +1475,9 @@ class WorkflowRunPublic(SQLModel):
     finished_at: datetime | None = None
     duration_ms: int | None = None
     last_heartbeat_at: datetime | None = None
+    # S03 additions — cancellation audit
+    cancelled_by_user_id: uuid.UUID | None = None
+    cancelled_at: datetime | None = None
     created_at: datetime | None = None
     step_runs: list[StepRunPublic] = Field(default_factory=list)
 

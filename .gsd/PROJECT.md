@@ -86,4 +86,4 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [x] M003-umluob: Terminal Infrastructure (verification) — Closed as already-delivered ✅ COMPLETE
 - [ ] M004-guylpp: Projects & GitHub — GitHub App per-team connections, team-mirror containers, two-hop clone (GitHub→mirror→user), push-back rules, webhook receiver (R009–R012, R034–R044) — S01 ✅, S02 ✅, S03 ✅, S04 ✅, S05 ✅, S06–S07 remaining
 - [x] M005-oaptsz: PWA, Notifications & Voice — PWA manifest + service worker + mobile audit, in-app notification center, Web Push with VAPID, universal Grok STT voice input (R021–R025) ✅ COMPLETE
-- [ ] M005-sqm8et: AI Integrations + Workflows — Claude Code + Codex per-team credentials, workflow trigger/step engine, run history, dispatch from webhook events, push-back rule executors (R013–R020)
+- [ ] M005-sqm8et: AI Integrations + Workflows — Claude Code + Codex per-team credentials, workflow trigger/step engine, run history, dispatch from webhook events, push-back rule executors (R013–R020) — S01 ✅, S02 ✅, S03–S06 remaining

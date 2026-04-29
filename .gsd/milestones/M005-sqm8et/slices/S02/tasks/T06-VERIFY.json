@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T06",
+  "unitId": "M005-sqm8et/S02/T06",
+  "timestamp": 1777434034141,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "docker compose build backend orchestrator",
+      "exitCode": 0,
+      "durationMs": 2968,
+      "verdict": "pass"
+    },
+    {
+      "command": "docker compose up -d db redis orchestrator",
+      "exitCode": 0,
+      "durationMs": 6522,
+      "verdict": "pass"
+    },
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 7,
+      "verdict": "pass"
+    },
+    {
+      "command": "POSTGRES_DB=perpetuity_app uv run pytest -m e2e tests/integration/test_m005_s02_dashboard_ai_buttons_e2e.py -v",
+      "exitCode": 4,
+      "durationMs": 230,
+      "verdict": "fail"
+    },
+    {
+      "command": "bash /Users/josh/code/perpetuity/scripts/redaction-sweep.sh",
+      "exitCode": 0,
+      "durationMs": 237,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}
