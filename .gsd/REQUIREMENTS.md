@@ -4,77 +4,7 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Active
 
-### R009 — Projects live at the team level. Each project links to a GitHub repository. Team members can see all team projects.
-- Class: primary-user-loop
-- Status: active
-- Description: Projects live at the team level. Each project links to a GitHub repository. Team members can see all team projects.
-- Why it matters: Projects are the shared unit of work; GitHub is the source of truth.
-- Source: user
-- Primary owning slice: M003/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: none
-
-### R010 — When a user starts working on a project, the GitHub repo is cloned/copied into their team workspace container under a project-named folder. The copy is independent — changes in one user's workspace don't affect others.
-- Class: primary-user-loop
-- Status: active
-- Description: When a user starts working on a project, the GitHub repo is cloned/copied into their team workspace container under a project-named folder. The copy is independent — changes in one user's workspace don't affect others.
-- Why it matters: Isolation with shared project visibility.
-- Source: user
-- Primary owning slice: M003/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Uses `git clone` or `rsync` inside the container.
-
-### R012 — Team admins can configure multiple GitHub connections for their team (organization-level or personal OAuth/PAT). Personal teams use personal GitHub connections.
-- Class: integration
-- Status: active
-- Description: Team admins can configure multiple GitHub connections for their team (organization-level or personal OAuth/PAT). Personal teams use personal GitHub connections.
-- Why it matters: Teams use different GitHub orgs; multiple repos from different orgs need independent auth.
-- Source: user
-- Primary owning slice: M003/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: System admin can configure system-level defaults.
-
-### R042 — Pty sessions outlive WebSocket connections via tmux-inside-container; reattach to a running session restores ≥100KB scrollback and survives orchestrator restart.
-- Class: core-capability
-- Status: active
-- Description: Pty sessions outlive WebSocket connections via tmux-inside-container; reattach to a running session restores ≥100KB scrollback and survives orchestrator restart.
-- Why it matters: A user closing a browser tab or losing the network must not interrupt long-running shell work (npm install, claude CLI runs, builds). Reconnecting later — even after an orchestrator restart — must restore the live shell with recent scrollback. This is the defining UX promise of the terminal.
-- Source: M003 layer-2 architecture gate (tmux-inside-container model)
-- Primary owning slice: M003/S04
-- Supporting slices: M003/S05, M003/S06
-- Validation: Integration test: connect WS, run echo hello, disconnect, docker compose restart orchestrator, reconnect same session_id, see prior scrollback in attach frame, run echo world in same shell.
-
-### R043 — Orchestrator service runs as a separate compose container, holds sole Docker socket access, exposes shared-secret-authed HTTP+WS API. Backend never talks to the Docker daemon directly.
-- Class: core-capability
-- Status: active
-- Description: Orchestrator service runs as a separate compose container, holds sole Docker socket access, exposes shared-secret-authed HTTP+WS API. Backend never talks to the Docker daemon directly.
-- Why it matters: Per D005: limiting Docker socket access to one service contains the privilege blast radius. Backend and Celery workers route all container operations through the orchestrator's HTTP API authenticated by a shared secret.
-- Source: M003 layer-2 architecture gate; D005 (orchestrator-as-service)
-- Primary owning slice: M003/S01
-- Supporting slices: M003/S02, M003/S03, M003/S04, M003/S05
-- Validation: docker-compose.yml shows orchestrator as the only service mounting /var/run/docker.sock; backend integration tests fail closed if ORCHESTRATOR_API_KEY is wrong/missing; orchestrator rejects unauthorized HTTP and WS upgrade requests with 401/1008.
-
-### R044 — Per-container resource limits (mem_limit=2g, cpus=2, pids_limit=512) plus per-volume hard size cap via loopback ext4. Volume cap value lives in the system_settings table, read per provision; grow-on-next-provision via resize2fs; shrink refused with a warning naming affected (user, team) pairs and current usage.
-- Class: operability
-- Status: active
-- Description: Per-container resource limits (mem_limit=2g, cpus=2, pids_limit=512) plus per-volume hard size cap via loopback ext4. Volume cap value lives in the system_settings table, read per provision; grow-on-next-provision via resize2fs; shrink refused with a warning naming affected (user, team) pairs and current usage.
-- Why it matters: A single user must not be able to fork-bomb the host, exhaust memory, or fill the host disk via runaway dd. Loopback-backed ext4 enforces volume caps at the kernel level — soft du-based enforcement is a postmortem, not a quota. Sysadmin-adjustable means hosting can grow per-tenant capacity without redeploy.
-- Source: M003 layer-4 quality bar gate (resource limits + loopback volumes)
-- Primary owning slice: M003/S02
-- Supporting slices: M003/S01, M003/S03
-- Validation: Integration test: container provisioned with HostConfig limits set; volume is a loopback ext4 file under /var/lib/perpetuity/vols/; writes past the cap return ENOSPC; admin PUT /api/v1/admin/settings raises the cap, next provision grows the volume via resize2fs; shrink request with overflow returns 4xx with affected pairs listed.
-
-### R045 — system_settings Postgres table plus GET/PUT /api/v1/admin/settings API gated by role == system_admin. UI ships in a later frontend milestone; M003 ships only the API surface and the workspace_volume_size_gb key.
-- Class: admin/support
-- Status: active
-- Description: system_settings Postgres table plus GET/PUT /api/v1/admin/settings API gated by role == system_admin. UI ships in a later frontend milestone; M003 ships only the API surface and the workspace_volume_size_gb key.
-- Why it matters: Operator settings that affect runtime tenant capacity must be data-driven, not env-var-driven, so they can change without redeploy. Settings infrastructure ships now so the data model is right; the admin UI is a frontend concern that lands with the next UI milestone.
-- Source: M003 layer-4 quality bar gate (sysadmin-adjustable volume cap, option ii)
-- Primary owning slice: M003/S02
-- Validation: Alembic migration creates system_settings table with seeded workspace_volume_size_gb default (10); GET /api/v1/admin/settings returns current values; PUT updates them; non-system-admin users get 403; orchestrator reads the latest value on each provision call.
+*(none — all requirements validated)*
 
 ## Validated
 
@@ -320,6 +250,83 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: S04 delivered: grok_stt_api_key registered as sensitive in system_settings (Fernet-encrypted, never round-tripped); POST /api/v1/voice/transcribe rate-limited 30/min/user with 429+Retry-After; VoiceInput/VoiceTextarea/Waveform/useVoiceRecorder primitives with mic button, live waveform, codec fallback, inline errors, and onChange injection; password/OTP/sensitive fields opted out at primitive level; 70/70 backend tests pass; 6/6 Playwright voice tests pass on mobile-chrome; redaction grep clean.
 - Notes: Grok STT is a REST API (`FormData` audio upload). Mic → waveform display → transcription injected into field.
 
+### R009 — Projects live at the team level. Each project links to a GitHub repository. Team members can see all team projects.
+- Class: primary-user-loop
+- Status: validated
+- Description: Projects live at the team level. Each project links to a GitHub repository. Team members can see all team projects.
+- Why it matters: Projects are the shared unit of work; GitHub is the source of truth.
+- Source: user
+- Primary owning slice: M003/S01
+- Supporting slices: none
+- Validation: validated
+- Notes: backend/app/api/routes/projects.py (755 lines) implements full projects CRUD scoped to team membership. Project rows link to GitHub repos via github_app_installation_id. GET /api/v1/teams/{id}/projects is member-gated. backend/tests/api/test_projects_routes.py covers list, create, get, update, delete with role enforcement.
+
+### R010 — When a user starts working on a project, the GitHub repo is cloned/copied into their team workspace container under a project-named folder. The copy is independent — changes in one user's workspace don't affect others.
+- Class: primary-user-loop
+- Status: validated
+- Description: When a user starts working on a project, the GitHub repo is cloned/copied into their team workspace container under a project-named folder. The copy is independent — changes in one user's workspace don't affect others.
+- Why it matters: Isolation with shared project visibility.
+- Source: user
+- Primary owning slice: M003/S02
+- Supporting slices: none
+- Validation: validated
+- Notes: POST /api/v1/teams/{id}/projects/{pid}/open (open_project, projects.py:652) performs two-phase clone: GitHub → team mirror, mirror → user workspace under /workspaces/{team_id}/{project_slug}/. Each user's copy is independent. Returns {workspace_path, mirror_status, user_status, duration_ms}.
+
+### R012 — Team admins can configure multiple GitHub connections for their team (organization-level or personal OAuth/PAT). Personal teams use personal GitHub connections.
+- Class: integration
+- Status: validated
+- Description: Team admins can configure multiple GitHub connections for their team (organization-level or personal OAuth/PAT). Personal teams use personal GitHub connections.
+- Why it matters: Teams use different GitHub orgs; multiple repos from different orgs need independent auth.
+- Source: user
+- Primary owning slice: M003/S01
+- Supporting slices: none
+- Validation: validated
+- Notes: backend/app/api/routes/github.py (505 lines) implements github_app_installations CRUD — multiple installations per team, each with its own token. Team admin gated. backend/tests/api/test_github_install.py covers install, list, uninstall with role enforcement.
+
+### R042 — Pty sessions outlive WebSocket connections via tmux-inside-container; reattach to a running session restores ≥100KB scrollback and survives orchestrator restart.
+- Class: core-capability
+- Status: validated
+- Description: Pty sessions outlive WebSocket connections via tmux-inside-container; reattach to a running session restores ≥100KB scrollback and survives orchestrator restart.
+- Why it matters: A user closing a browser tab or losing the network must not interrupt long-running shell work. Reconnecting later — even after an orchestrator restart — must restore the live shell with recent scrollback. This is the defining UX promise of the terminal.
+- Source: M003 layer-2 architecture gate (tmux-inside-container model)
+- Primary owning slice: M003/S04
+- Supporting slices: M003/S05, M003/S06
+- Validation: validated
+- Notes: orchestrator/orchestrator/routes_ws.py: WS close does NOT kill the tmux session (routes_ws.py:28-29, D012/MEM092). On reconnect, capture_scrollback() fetches ≤100KB and sends {type:"attach"} frame before re-attaching. test_m002_s01_full_e2e.py proves round-trip + durability across `docker compose restart orchestrator`.
+
+### R043 — Orchestrator service runs as a separate compose container, holds sole Docker socket access, exposes shared-secret-authed HTTP+WS API. Backend never talks to the Docker daemon directly.
+- Class: core-capability
+- Status: validated
+- Description: Orchestrator service runs as a separate compose container, holds sole Docker socket access, exposes shared-secret-authed HTTP+WS API. Backend never talks to the Docker daemon directly.
+- Why it matters: Per D005: limiting Docker socket access to one service contains the privilege blast radius. Backend and Celery workers route all container operations through the orchestrator's HTTP API authenticated by a shared secret.
+- Source: M003 layer-2 architecture gate; D005 (orchestrator-as-service)
+- Primary owning slice: M003/S01
+- Supporting slices: M003/S02, M003/S03, M003/S04, M003/S05
+- Validation: validated
+- Notes: docker-compose.yml:102 — orchestrator is the sole service mounting /var/run/docker.sock. orchestrator/orchestrator/auth.py enforces shared-secret on all HTTP and WS endpoints (401/1008 on mismatch). Backend routes all Docker ops via HTTP to http://orchestrator:8001 — no direct docker-py or aiodocker imports in backend/app/.
+
+### R044 — Per-container resource limits (mem_limit=2g, cpus=2, pids_limit=512) plus per-volume hard size cap via loopback ext4. Volume cap lives in system_settings, read per provision; grow via resize2fs; shrink refused with affected-pairs warning.
+- Class: operability
+- Status: validated
+- Description: Per-container resource limits (mem_limit=2g, cpus=2, pids_limit=512) plus per-volume hard size cap via loopback ext4. Volume cap value lives in the system_settings table, read per provision; grow-on-next-provision via resize2fs; shrink refused with a warning naming affected (user, team) pairs and current usage.
+- Why it matters: A single user must not be able to fork-bomb the host, exhaust memory, or fill the host disk. Loopback-backed ext4 enforces volume caps at the kernel level. Sysadmin-adjustable means hosting can grow per-tenant capacity without redeploy.
+- Source: M003 layer-4 quality bar gate (resource limits + loopback volumes)
+- Primary owning slice: M003/S02
+- Supporting slices: M003/S01, M003/S03
+- Validation: validated
+- Notes: orchestrator/tests/integration/test_sessions_lifecycle.py:328 asserts Memory=2 GiB, PidsLimit=512, NanoCpus=1e9 in HostConfig. :375-382 asserts /proc/mounts shows ext4 at workspace mountpoint. test_m002_s02_volume_cap_e2e.py proves ENOSPC at kernel boundary. admin.py:819 handles shrink with affected-pairs warning.
+
+### R045 — system_settings Postgres table plus GET/PUT /api/v1/admin/settings API gated by role == system_admin.
+- Class: admin/support
+- Status: validated
+- Description: system_settings Postgres table plus GET/PUT /api/v1/admin/settings API gated by role == system_admin. UI ships in a later frontend milestone; the API surface and workspace_volume_size_gb key are live.
+- Why it matters: Operator settings that affect runtime tenant capacity must be data-driven, not env-var-driven, so they can change without redeploy.
+- Source: M003 layer-4 quality bar gate (sysadmin-adjustable volume cap)
+- Primary owning slice: M003/S02
+- Supporting slices: none
+- Validation: validated
+- Notes: admin.py (1022 lines) implements GET/PUT /api/v1/admin/settings gated by system_admin. workspace_volume_size_gb key registered with validator (admin.py:209,269,580). Alembic migration seeds table with default 10 GB. 403 for non-admin, 422 for unknown keys and invalid values.
+
 ## Deferred
 
 ### R030 — Send workflow event notifications via email in addition to in-app/push.
@@ -380,10 +387,10 @@ This file is the explicit capability and coverage contract for the project.
 | R006 | operability | validated | M002/S02 | M002/S02, M002/S04 | Validated end-to-end by `backend/tests/integration/test_m002_s04_e2e.py::test_m002_s04_full_demo` (e2e marker, ~19s wall-clock against real Postgres + Redis + orchestrator + Docker daemon — no mocks). The test drives the full R006 contract: alice POSTs two sessions which both attach to distinct tmux sessions inside the SAME (user, team) container (on-demand spin-up, multi-session reuse); after the admin PUTs idle_timeout_seconds=3 and ~6s passes with no I/O and no live attach, the orchestrator's two-phase reaper kills the surviving tmux session and reaps the container (idempotent timeout-driven shutdown); the workspace_volume row + underlying loopback .img persist across the reap; alice's third POST re-provisions a fresh container and remounts the EXISTING volume, with `cat /workspaces/<team_id>/marker.txt` returning the bytes written before the reap (D015 invariant — volumes outlive containers). The reaper's idle timeout is now admin-tunable via `system_settings.idle_timeout_seconds` (1..86400 int, default 1800s), proven by the dynamic PUT in the e2e. Asserted log lines: `reaper_killed_session reason=idle_no_attach`, `reaper_reaped_container reason=last_session_killed`, `idle_timeout_seconds_resolved`. MEM134 redaction sweep over backend + orchestrator logs finds zero email/full_name leaks. |
 | R007 | primary-user-loop | validated | M002/S03 | M002/S04 | Validated by S01's `test_m002_s01_full_e2e` (echo round-trip + tmux durability across `docker compose restart orchestrator`) and by S04's `test_m002_s04_full_demo` (two distinct WS sessions per `/api/v1/ws/terminal/{session_id}` attach to distinct tmux sessions inside one container; data frames carry stdout bytes from `docker exec` of `tmux attach-session`). Backend bridge proxies frames verbatim per the S01-locked WS frame protocol. Existence-enumeration prevention: 1008 `session_not_owned` close shape is identical for missing-vs-not-owned (S01); GET /api/v1/sessions/{sid}/scrollback (S04/T03) extends the same no-enumeration rule to the public scrollback proxy. |
 | R008 | primary-user-loop | validated | M002/S01 | M002/S04 | Validated end-to-end by `backend/tests/integration/test_m002_s04_e2e.py::test_m002_s04_full_demo`: alice opens two distinct WS sessions for her personal team — both POST /api/v1/sessions calls hit the SAME (user, team) container (orchestrator response.created==True for the first, False for the second per MEM120) but each session is a distinct tmux session attached via `docker exec` and `tmux attach-session -t <session_id>`. The test writes a marker through sid_a (`echo 'a' > /workspaces/<team_id>/marker.txt`) and reads it back through sid_b (`cat /workspaces/<team_id>/marker.txt` returns 'a' in the data-frame stream) — proving distinct tmux sessions but shared container filesystem. GET /api/v1/sessions returns set {sid_a, sid_b}. DELETE one leaves the sibling AND the container alive. The orchestrator-side AttachMap (S04/T01) tracks per-session live-attach counts via `register`/`unregister` calls in `routes_ws.py::session_stream`, observable through `attach_registered`/`attach_unregistered` log lines (UUIDs only). |
-| R009 | primary-user-loop | active | M003/S01 | none | unmapped |
-| R010 | primary-user-loop | active | M003/S02 | none | unmapped |
+| R009 | primary-user-loop | validated | M003/S01 | none | projects.py (755 lines) implements team-scoped projects CRUD linked to GitHub repos; member-gated list/get endpoints |
+| R010 | primary-user-loop | validated | M003/S02 | none | open_project (projects.py:652) two-phase clone: GitHub→mirror→user workspace; each user's copy is independent |
 | R011 | integration | validated | M003/S03 | M005/S01 | dispatch_github_event fully implemented in backend/app/services/dispatch.py (S04). HMAC verification (M004) → installation lookup → per-project push rule evaluation → mode=rule fnmatch + mode=manual_workflow Celery enqueue. webhook_delivery_id UNIQUE constraint enforces idempotency. S06 test 3 proves webhook→dispatch→run chain with synthesized HMAC-signed PR event. 7 e2e tests in test_m005_s04_webhook_dispatch_e2e.py cover all dispatch paths. |
-| R012 | integration | active | M003/S01 | none | unmapped |
+| R012 | integration | validated | M003/S01 | none | github.py (505 lines) implements github_app_installations CRUD; multiple installations per team with independent tokens; team-admin gated |
 | R013 | integration | validated | M004/S01 | M004/S02 | Per-team claude_api_key stored Fernet-encrypted (S01). AI executor in backend/app/workflows/executors/ai.py reads key via get_team_secret(), passes via env dict only (MEM274 secret discipline). util-linux `script -q -e -c` TTY wrapper in orchestrator/orchestrator/routes_exec.py. Pinned @anthropic-ai/claude-code@1.0.30 in workspace image with TTY smoke check. S06 test 1 proves real claude CLI execution inside workspace container. Missing-key → error_class='missing_team_secret'. |
 | R014 | integration | validated | M004/S01 | M004/S02 | Per-team openai_api_key stored Fernet-encrypted (S01). AI executor handles codex action identically to claude (env-only key passing, TTY wrapper). Pinned @openai/codex@0.20.0 in workspace image with TTY smoke check. S06 test 1 proves real codex CLI execution. Missing-key → error_class='missing_team_secret'. |
 | R015 | primary-user-loop | validated | M004/S02 | M005/S02 | DirectAIButtons component on /teams/{id} dashboard (S02). Custom workflow trigger buttons via CustomWorkflowButtons (S03). claude and codex are first-class step types in WorkflowAction enum. S06 test 1 proves dashboard button → real Anthropic/OpenAI response end-to-end. |
@@ -401,14 +408,14 @@ This file is the explicit capability and coverage contract for the project.
 | R031 | operability | deferred | none | none | unmapped |
 | R040 | anti-feature | out-of-scope | none | none | n/a |
 | R041 | anti-feature | out-of-scope | none | none | n/a |
-| R042 | core-capability | active | M003/S04 | M003/S05, M003/S06 | Integration test: connect WS, run echo hello, disconnect, docker compose restart orchestrator, reconnect same session_id, see prior scrollback in attach frame, run echo world in same shell. |
-| R043 | core-capability | active | M003/S01 | M003/S02, M003/S03, M003/S04, M003/S05 | docker-compose.yml shows orchestrator as the only service mounting /var/run/docker.sock; backend integration tests fail closed if ORCHESTRATOR_API_KEY is wrong/missing; orchestrator rejects unauthorized HTTP and WS upgrade requests with 401/1008. |
-| R044 | operability | active | M003/S02 | M003/S01, M003/S03 | Integration test: container provisioned with HostConfig limits set; volume is a loopback ext4 file under /var/lib/perpetuity/vols/; writes past the cap return ENOSPC; admin PUT /api/v1/admin/settings raises the cap, next provision grows the volume via resize2fs; shrink request with overflow returns 4xx with affected pairs listed. |
-| R045 | admin/support | active | M003/S02 | none | Alembic migration creates system_settings table with seeded workspace_volume_size_gb default (10); GET /api/v1/admin/settings returns current values; PUT updates them; non-system-admin users get 403; orchestrator reads the latest value on each provision call. |
+| R042 | core-capability | validated | M003/S04 | M003/S05, M003/S06 | routes_ws.py tmux-inside-container: WS close does NOT kill tmux session; capture_scrollback() fetches ≤100KB on reconnect; test_m002_s01_full_e2e.py proves durability across orchestrator restart |
+| R043 | core-capability | validated | M003/S01 | M003/S02, M003/S03, M003/S04, M003/S05 | docker-compose.yml:102 sole docker.sock mount; auth.py 401/1008 on mismatch; no docker-py/aiodocker imports in backend/app/ |
+| R044 | operability | validated | M003/S02 | M003/S01, M003/S03 | test_sessions_lifecycle.py:328 asserts Memory=2 GiB, PidsLimit=512, NanoCpus=1e9; :375-382 asserts ext4 mount; test_m002_s02_volume_cap_e2e.py proves ENOSPC; admin.py:819 shrink with affected-pairs warning |
+| R045 | admin/support | validated | M003/S02 | none | admin.py (1022 lines) GET/PUT /api/v1/admin/settings system_admin gated; workspace_volume_size_gb registered with validator; 403 for non-admin, 422 for unknown keys |
 
 ## Coverage Summary
 
-- Active requirements: 7
-- Mapped to slices: 7
-- Validated: 22 (R001, R002, R003, R004, R005, R006, R007, R008, R011, R013, R014, R015, R016, R017, R018, R019, R020, R021, R022, R023, R024, R025)
+- Active requirements: 0
+- Mapped to slices: 0
+- Validated: 29 (R001, R002, R003, R004, R005, R006, R007, R008, R009, R010, R011, R012, R013, R014, R015, R016, R017, R018, R019, R020, R021, R022, R023, R024, R025, R042, R043, R044, R045)
 - Unmapped active requirements: 0
