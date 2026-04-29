@@ -73,7 +73,7 @@ Currently, line 320 checks `if mode != 'auto': return {'result': 'skipped_rule_c
   - Files: `orchestrator/orchestrator/auto_push.py`, `orchestrator/orchestrator/routes_projects.py`
   - Verify: Run: cd orchestrator && python -m pytest tests/unit/test_auto_push_mode_rule.py -v (unit tests: mode=rule match executes push, mode=rule no-match returns skipped, mode=rule no branch_pattern returns skipped, mode=manual_workflow returns skipped, mode=auto unchanged). All pass.
 
-- [ ] **T03: E2e integration test suite for webhook dispatch** `est:2h`
+- [x] **T03: E2e integration test suite for webhook dispatch** `est:2h`
   Write `backend/tests/integration/test_m005_s04_webhook_dispatch_e2e.py` covering the full S04 surface against a live compose stack.
 
 Follow the S02/S03 e2e test pattern: `pytest.mark.e2e`, `@pytest.fixture(scope='module')` for compose stack, respx for mocking external GitHub API calls, log accumulator + discriminator sweep.

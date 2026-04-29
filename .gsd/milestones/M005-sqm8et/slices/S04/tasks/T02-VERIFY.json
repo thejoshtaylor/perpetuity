@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M005-sqm8et/S04/T02",
+  "timestamp": 1777453455885,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "python -m pytest tests/unit/test_auto_push_mode_rule.py -v (unit tests: mode=rule match executes push, mode=rule no-match returns skipped, mode=rule no branch_pattern returns skipped, mode=manual_workflow returns skipped, mode=auto unchanged). All pass.",
+      "exitCode": 2,
+      "durationMs": 5,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}
