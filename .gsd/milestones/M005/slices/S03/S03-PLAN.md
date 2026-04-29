@@ -31,7 +31,7 @@ S02 shipped workflow_runs + step_runs schema and run engine; S03 adds the CRUD m
   - Files: `backend/app/models.py`, `backend/app/schemas.py`
   - Verify: cd backend && python -c 'from app.models import Workflow, WorkflowStep, WorkflowRun; from app.schemas import WorkflowCreate, WorkflowWithStepsPublic'
 
-- [ ] **T03: Implement workflow_dispatch service: resolve_target_user with user/team/round_robin scope routing** `est:1h`
+- [x] **T03: Implement workflow_dispatch service: resolve_target_user with user/team/round_robin scope routing** `est:1h`
   Create backend/app/services/workflow_dispatch.py implementing resolve_target_user(session, workflow, triggering_user_id) -> (target_user_id, fallback_reason). Handle user scope (always triggering user), team_specific (workflow.target_user_id), round_robin (atomic cursor increment over members with live workspaces, fallback to triggering user). Write full pytest coverage.
   - Files: `backend/app/services/workflow_dispatch.py`, `backend/tests/api/test_workflow_dispatch_service.py`
   - Verify: cd backend && python -m pytest tests/api/test_workflow_dispatch_service.py -x -q
