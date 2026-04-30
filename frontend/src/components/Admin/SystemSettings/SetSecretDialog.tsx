@@ -26,6 +26,7 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { cn } from "@/lib/utils"
 
 type Variant = "pem" | "string"
+type InputType = "number" | "text"
 
 const pemSchema = z.object({
   value: z
@@ -40,10 +41,21 @@ const stringSchema = z.object({
   value: z.string().min(1, { message: "Value cannot be empty" }),
 })
 
+const numberSchema = z.object({
+  value: z
+    .string()
+    .min(1, { message: "Value cannot be empty" })
+    .refine((s) => /^-?\d+$/.test(s.trim()), {
+      message: "Must be a whole number (e.g. 10, 1800)",
+    }),
+})
+
 type Props = {
   settingKey: string
   hasValue: boolean
   variant: Variant
+  /** Whether the backend expects a numeric integer value. */
+  inputType?: InputType
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (value: string) => void
@@ -64,12 +76,18 @@ export function SetSecretDialog({
   settingKey,
   hasValue,
   variant,
+  inputType = "text",
   open,
   onOpenChange,
   onSubmit,
   isPending,
 }: Props) {
-  const schema = variant === "pem" ? pemSchema : stringSchema
+  const schema =
+    variant === "pem"
+      ? pemSchema
+      : inputType === "number"
+        ? numberSchema
+        : stringSchema
   type FormData = z.infer<typeof schema>
 
   const form = useForm<FormData>({
@@ -87,10 +105,14 @@ export function SetSecretDialog({
   }
 
   const verb = hasValue ? "Replace" : "Set"
-  const placeholder =
+  const defaultPlaceholder =
     variant === "pem"
       ? "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----"
-      : "Paste secret here"
+      : inputType === "number"
+        ? "Enter a whole number"
+        : "Paste value here"
+
+  const isSensitive = variant === "pem" || inputType === "text"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,8 +122,9 @@ export function SetSecretDialog({
             {verb} {settingKey}
           </DialogTitle>
           <DialogDescription>
-            The plaintext is encrypted at rest. After saving, this value will
-            never be returned by the API again.
+            {isSensitive
+              ? "The plaintext is encrypted at rest. After saving, this value will never be returned by the API again."
+              : "Enter a value for this setting. The value will be stored as-is and can be replaced later."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -123,7 +146,7 @@ export function SetSecretDialog({
                         // asserts no mic ever rendered next to it.
                         <textarea
                           {...field}
-                          placeholder={placeholder}
+                          placeholder={defaultPlaceholder}
                           rows={10}
                           autoComplete="off"
                           spellCheck={false}
@@ -133,6 +156,23 @@ export function SetSecretDialog({
                             "border-input placeholder:text-muted-foreground focus-visible:ring-ring/50 flex w-full rounded-md border bg-transparent px-3 py-2 text-sm font-mono shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
                           )}
                         />
+                      ) : inputType === "number" ? (
+                        // Numeric setting — render a number-mode text input.
+                        // We use type="text" with inputMode="numeric" so the
+                        // browser shows a numeric keyboard on mobile without
+                        // the step arrows and browser-native number parsing
+                        // interfering with react-hook-form's string schema.
+                        <Input
+                          {...field}
+                          placeholder={defaultPlaceholder}
+                          autoComplete="off"
+                          spellCheck={false}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="-?\d*"
+                          voice={false}
+                          data-testid={`system-settings-set-input-${settingKey}`}
+                        />
                       ) : (
                         // M005-oaptsz/S04/T03: single-line secret value
                         // (webhook secret, etc). voice={false} forces the
@@ -140,7 +180,7 @@ export function SetSecretDialog({
                         // mic — operator secrets must never be dictated.
                         <Input
                           {...field}
-                          placeholder={placeholder}
+                          placeholder={defaultPlaceholder}
                           autoComplete="off"
                           spellCheck={false}
                           type="text"
