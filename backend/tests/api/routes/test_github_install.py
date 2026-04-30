@@ -21,8 +21,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlmodel import Session, delete
 
-from app.api.routes.admin import GITHUB_APP_CLIENT_ID_KEY, GITHUB_APP_SLUG_KEY
+from app.api.routes.admin import (
+    GITHUB_APP_CLIENT_ID_KEY,
+    GITHUB_APP_CLIENT_SECRET_KEY,
+    GITHUB_APP_SLUG_KEY,
+)
 from app.core.config import settings
+from app.core.encryption import encrypt_setting
 from app.models import GitHubAppInstallation, SystemSetting
 from tests.utils.utils import random_email, random_lower_string
 
@@ -46,19 +51,16 @@ def _clean_github_install_state(db: Session):
     teams, or memberships — those leak across modules by design via the
     session-scoped `db` fixture.
     """
+    _SETTINGS_KEYS = [GITHUB_APP_SLUG_KEY, GITHUB_APP_CLIENT_ID_KEY, GITHUB_APP_CLIENT_SECRET_KEY]
     db.execute(delete(GitHubAppInstallation))
     db.execute(
-        delete(SystemSetting).where(
-            SystemSetting.key.in_([GITHUB_APP_SLUG_KEY, GITHUB_APP_CLIENT_ID_KEY])
-        )
+        delete(SystemSetting).where(SystemSetting.key.in_(_SETTINGS_KEYS))
     )
     db.commit()
     yield
     db.execute(delete(GitHubAppInstallation))
     db.execute(
-        delete(SystemSetting).where(
-            SystemSetting.key.in_([GITHUB_APP_SLUG_KEY, GITHUB_APP_CLIENT_ID_KEY])
-        )
+        delete(SystemSetting).where(SystemSetting.key.in_(_SETTINGS_KEYS))
     )
     db.commit()
 
@@ -189,6 +191,20 @@ class _FakeAsyncClient:
         self, url: str, *, headers: dict[str, str] | None = None, **_: object
     ) -> _FakeResponse:
         handler = self._resolve("GET", url)
+        if isinstance(handler, Exception):
+            raise handler
+        assert isinstance(handler, _FakeResponse)
+        return handler
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json: object = None,
+        headers: dict[str, str] | None = None,
+        **_: object,
+    ) -> _FakeResponse:
+        handler = self._resolve("POST", url)
         if isinstance(handler, Exception):
             raise handler
         assert isinstance(handler, _FakeResponse)
@@ -1068,6 +1084,29 @@ def test_get_install_callback_missing_params_redirects_with_error(
     assert "github_install_error=missing_params" in location
 
 
+def _seed_client_secret(db: Session, plaintext: str = "test-client-secret") -> None:
+    """Seed `github_app_client_secret` as a Fernet-encrypted row."""
+    ciphertext = encrypt_setting(plaintext)
+    db.execute(
+        text(
+            """
+            INSERT INTO system_settings
+                (key, value, value_encrypted, sensitive, has_value, updated_at)
+            VALUES
+                (:key, NULL, :ct, TRUE, TRUE, NOW())
+            ON CONFLICT (key) DO UPDATE
+            SET value = NULL,
+                value_encrypted = EXCLUDED.value_encrypted,
+                sensitive = TRUE,
+                has_value = TRUE,
+                updated_at = NOW()
+            """
+        ),
+        {"key": GITHUB_APP_CLIENT_SECRET_KEY, "ct": ciphertext},
+    )
+    db.commit()
+
+
 def test_get_install_callback_with_oauth_code_and_install_params_succeeds(
     client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1109,3 +1148,290 @@ def test_get_install_callback_with_oauth_code_and_install_params_succeeds(
     location = r2.headers["location"]
     assert location.endswith("/teams"), f"unexpected redirect: {location!r}"
     assert "github_install_error" not in location
+
+
+# ---------------------------------------------------------------------------
+# GET /github/install-callback — OAuth code-only flow (no installation_id)
+# ---------------------------------------------------------------------------
+# These tests cover _resolve_installation_id_from_oauth_code():
+#   GitHub sends code+state (no installation_id) when the App has OAuth enabled.
+#   The handler must exchange the code for a user token, then call
+#   GET /user/installations to resolve the installation_id before proceeding.
+# ---------------------------------------------------------------------------
+
+
+def _build_oauth_routes(
+    installation_id: int,
+    access_token: str = "ghu_faketoken",
+    token_status: int = 200,
+    token_body: object | None = None,
+    token_raises_on_json: bool = False,
+    installs_status: int = 200,
+    installs_body: object | None = None,
+    installs_raises_on_json: bool = False,
+    orch_login: str = "oauth-code-org",
+    orch_type: str = "Organization",
+) -> dict[tuple[str, str], object]:
+    """Build a route map that scripts the full OAuth code-exchange flow."""
+    if token_body is None:
+        token_body = {"access_token": access_token, "token_type": "bearer"}
+    if installs_body is None:
+        installs_body = {
+            "total_count": 1,
+            "installations": [{"id": installation_id, "app_slug": "test-app"}],
+        }
+    return {
+        ("POST", "github.com/login/oauth/access_token"): _FakeResponse(
+            token_status,
+            token_body,
+            raises_on_json=token_raises_on_json,
+        ),
+        ("GET", "api.github.com/user/installations"): _FakeResponse(
+            installs_status,
+            installs_body,
+            raises_on_json=installs_raises_on_json,
+        ),
+        ("GET", f"/v1/installations/{installation_id}/lookup"): _FakeResponse(
+            200,
+            {"account_login": orch_login, "account_type": orch_type},
+        ),
+    }
+
+
+def test_oauth_code_only_happy_path_resolves_and_persists(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """code+state only (no installation_id) → exchange code, resolve, persist row, redirect /teams."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthCodeHappy")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    _seed_client_secret(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    inst_id = 600001
+    routes = _build_oauth_routes(inst_id)
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_testcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    location = r.headers["location"]
+    assert location.endswith("/teams"), f"unexpected redirect: {location!r}"
+    assert "github_install_error" not in location
+
+    db.expire_all()
+    row = db.execute(
+        text(
+            "SELECT installation_id, account_login, team_id"
+            " FROM github_app_installations WHERE installation_id = :id"
+        ),
+        {"id": inst_id},
+    ).one()
+    assert row.installation_id == inst_id
+    assert row.account_login == "oauth-code-org"
+    assert str(row.team_id) == team_id
+
+
+def test_oauth_code_only_client_id_not_configured_redirects_error(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """code+state but client_id not in system_settings → redirect with github_app_not_configured."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthNoClientId")
+    _seed_app_slug(db)
+    # Deliberately omit _seed_client_id
+    _seed_client_secret(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    _install_fake_orch(monkeypatch, {})
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_testcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    assert "github_app_not_configured" in r.headers["location"]
+
+
+def test_oauth_code_only_client_secret_not_configured_redirects_error(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """code+state but client_secret not in system_settings → redirect with github_app_not_configured."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthNoSecret")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    # Deliberately omit _seed_client_secret
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    _install_fake_orch(monkeypatch, {})
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_testcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    assert "github_app_not_configured" in r.headers["location"]
+
+
+def test_oauth_code_only_token_exchange_non_200_redirects_error(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GitHub returns 401 on the token exchange → redirect with github_oauth_exchange_failed."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthTokenFail")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    _seed_client_secret(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    routes = _build_oauth_routes(600002, token_status=401, token_body={"error": "bad_verification_code"})
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_badcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    assert "github_oauth_exchange_failed" in r.headers["location"]
+
+
+def test_oauth_code_only_token_body_missing_access_token_redirects_error(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Token exchange succeeds but returns error body (no access_token) → redirect with error."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthNoToken")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    _seed_client_secret(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    routes = _build_oauth_routes(
+        600003,
+        token_body={"error": "bad_verification_code", "error_description": "The code passed is incorrect or expired."},
+    )
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_expiredcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    assert "github_oauth_exchange_failed" in r.headers["location"]
+
+
+def test_oauth_code_only_no_installations_found_redirects_error(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Token exchange succeeds but /user/installations returns empty list → redirect with error."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthNoInstalls")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    _seed_client_secret(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    routes = _build_oauth_routes(
+        600004,
+        installs_body={"total_count": 0, "installations": []},
+    )
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_testcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    assert "github_no_installation_found" in r.headers["location"]
+
+
+def test_oauth_code_only_picks_highest_installation_id(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multiple installations returned → handler picks the highest (most recent) id."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OAuthMultiInstall")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    _seed_client_secret(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    highest_id = 600010
+    routes: dict[tuple[str, str], object] = {
+        ("POST", "github.com/login/oauth/access_token"): _FakeResponse(
+            200, {"access_token": "ghu_tok", "token_type": "bearer"}
+        ),
+        ("GET", "api.github.com/user/installations"): _FakeResponse(
+            200,
+            {
+                "total_count": 3,
+                "installations": [
+                    {"id": 600005, "app_slug": "test"},
+                    {"id": highest_id, "app_slug": "test"},
+                    {"id": 600007, "app_slug": "test"},
+                ],
+            },
+        ),
+        ("GET", f"/v1/installations/{highest_id}/lookup"): _FakeResponse(
+            200, {"account_login": "multi-org", "account_type": "Organization"}
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "ghu_testcode", "state": state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    location = r.headers["location"]
+    assert location.endswith("/teams"), location
+    assert "github_install_error" not in location
+
+    db.expire_all()
+    row = db.execute(
+        text(
+            "SELECT installation_id FROM github_app_installations"
+            " WHERE installation_id = :id"
+        ),
+        {"id": highest_id},
+    ).one()
+    assert row.installation_id == highest_id

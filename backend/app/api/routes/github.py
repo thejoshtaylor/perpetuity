@@ -10,10 +10,12 @@ Endpoints:
 
   - `GET    /api/v1/github/install-callback`
         PUBLIC. GitHub redirects the operator's browser here (GET) after the
-        install handshake, passing installation_id, setup_action, and state as
-        query params. Validates the state JWT, persists the installation, then
-        redirects the browser to the frontend teams page. Configure this URL as
-        the GitHub App "Setup URL" (or "Callback URL") in your GitHub App settings.
+        install handshake. When the GitHub App has OAuth enabled, configure this
+        URL as the "Callback URL" — GitHub sends code+state (no installation_id).
+        The handler exchanges the code for a user token, then resolves the
+        installation_id via GET /user/installations. When OAuth is disabled,
+        configure as the "Setup URL" — GitHub sends installation_id+state directly.
+        On success, redirects to the frontend teams page.
 
   - `POST   /api/v1/github/install-callback`
         PUBLIC. Same logic as the GET callback but accepts params as a JSON
@@ -61,9 +63,14 @@ from sqlalchemy import text
 from sqlmodel import col, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.api.routes.admin import GITHUB_APP_CLIENT_ID_KEY, GITHUB_APP_SLUG_KEY
+from app.api.routes.admin import (
+    GITHUB_APP_CLIENT_ID_KEY,
+    GITHUB_APP_CLIENT_SECRET_KEY,
+    GITHUB_APP_SLUG_KEY,
+)
 from app.api.team_access import assert_caller_is_team_admin
 from app.core.config import settings
+from app.core.encryption import SystemSettingDecryptError, decrypt_setting
 from app.models import (
     GitHubAppInstallation,
     GitHubAppInstallationPublic,
@@ -276,6 +283,186 @@ async def _orch_lookup_installation(installation_id: int) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# OAuth code-exchange helper
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_installation_id_from_oauth_code(
+    session: Any, code: str
+) -> int:
+    """Exchange a GitHub OAuth `code` for a user token, then resolve the installation_id.
+
+    Called when GitHub's OAuth Callback URL flow sends `code` + `state`
+    instead of `installation_id` + `state`. Steps:
+      1. Read client_id (non-sensitive JSONB) and client_secret (Fernet-encrypted)
+         from system_settings.
+      2. POST to github.com/login/oauth/access_token to exchange the code.
+      3. GET /user/installations with the resulting token to find the installation
+         that was just granted. Returns the most-recently-granted installation_id.
+
+    Raises HTTPException 502 on any GitHub API error, 503 if credentials are
+    missing or unreadable.
+    """
+    # Read client_id
+    client_id_row = session.get(SystemSetting, GITHUB_APP_CLIENT_ID_KEY)
+    if (
+        client_id_row is None
+        or not client_id_row.has_value
+        or not isinstance(client_id_row.value, str)
+        or not client_id_row.value
+    ):
+        logger.warning(
+            "github_oauth_exchange_failed reason=client_id_not_configured"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="github_app_not_configured",
+        )
+    client_id: str = client_id_row.value
+
+    # Read client_secret (encrypted)
+    secret_row = session.get(SystemSetting, GITHUB_APP_CLIENT_SECRET_KEY)
+    if secret_row is None or not secret_row.has_value or not secret_row.value_encrypted:
+        logger.warning(
+            "github_oauth_exchange_failed reason=client_secret_not_configured"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="github_app_not_configured",
+        )
+    try:
+        client_secret = decrypt_setting(bytes(secret_row.value_encrypted))
+    except SystemSettingDecryptError:
+        logger.warning(
+            "github_oauth_exchange_failed reason=client_secret_decrypt_error"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="github_app_credential_error",
+        )
+
+    # Exchange code for access token
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            token_resp = await c.post(
+                "https://github.com/login/oauth/access_token",
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                },
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_oauth_exchange_failed reason=token_request_error err=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    if token_resp.status_code != 200:
+        logger.warning(
+            "github_oauth_exchange_failed reason=token_request_status status=%s",
+            token_resp.status_code,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    try:
+        token_body = token_resp.json()
+    except ValueError:
+        logger.warning(
+            "github_oauth_exchange_failed reason=token_response_malformed"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    access_token = token_body.get("access_token")
+    if not access_token or not isinstance(access_token, str):
+        error = token_body.get("error", "unknown")
+        logger.warning(
+            "github_oauth_exchange_failed reason=no_access_token error=%s",
+            error,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    # Fetch installations accessible to this user token
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            installs_resp = await c.get(
+                "https://api.github.com/user/installations",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_oauth_exchange_failed reason=installations_request_error err=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    if installs_resp.status_code != 200:
+        logger.warning(
+            "github_oauth_exchange_failed reason=installations_request_status status=%s",
+            installs_resp.status_code,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    try:
+        installs_body = installs_resp.json()
+        installations = installs_body.get("installations", [])
+    except (ValueError, AttributeError):
+        logger.warning(
+            "github_oauth_exchange_failed reason=installations_response_malformed"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+
+    if not installations:
+        logger.warning(
+            "github_oauth_exchange_failed reason=no_installations_found"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="github_no_installation_found",
+        )
+
+    # Return the installation with the highest (most recent) id.
+    # GitHub returns installations in descending creation order but we sort
+    # defensively to handle any ordering the API may return.
+    installation_id: int = max(
+        inst["id"] for inst in installations if isinstance(inst.get("id"), int)
+    )
+    logger.info(
+        "github_oauth_code_exchanged installation_id=%s total_installations=%s",
+        installation_id,
+        len(installations),
+    )
+    return installation_id
+
+
+# ---------------------------------------------------------------------------
 # HTTP routes
 # ---------------------------------------------------------------------------
 
@@ -438,30 +625,55 @@ async def github_install_callback_get(
     state: str | None = Query(default=None, min_length=1),
     code: str | None = Query(default=None),
 ) -> RedirectResponse:
-    """Browser-facing GET callback — configure as GitHub App Setup URL or Callback URL.
+    """Browser-facing GET callback — supports both Setup URL and OAuth Callback URL flows.
 
-    GitHub redirects the operator's browser here after installation. When the
-    GitHub App has OAuth enabled, configure this URL as the "Callback URL"
-    (under "Identifying and authorizing users") — GitHub sends
-    installation_id, setup_action, state, and code as query params. When
-    OAuth is disabled, configure it as the "Setup URL" and GitHub omits code.
+    OAuth flow (GitHub App has "Identifying and authorizing users" enabled):
+      GitHub sends code+state. This handler exchanges the code for a user
+      access token, then calls GET /user/installations to resolve the
+      installation_id. Requires github_app_client_id and github_app_client_secret
+      to be configured in system_settings.
+
+    Setup URL flow (OAuth disabled):
+      GitHub sends installation_id+setup_action+state directly. No code exchange.
 
     All params are optional at the transport layer so FastAPI never 422-rejects
-    a GitHub redirect due to a missing param variant. The handler validates
-    what it needs (installation_id + state) and redirects to the frontend with
-    a github_install_error param on any failure so the UI can surface a toast.
+    a GitHub redirect. The handler redirects to the frontend with a
+    github_install_error param on any failure so the UI can surface a toast.
     """
     frontend_teams = f"{settings.FRONTEND_HOST.rstrip('/')}/teams"
 
-    if not installation_id or not state:
-        missing = []
-        if not installation_id:
-            missing.append("installation_id")
-        if not state:
-            missing.append("state")
+    if not state:
         logger.warning(
-            "github_install_callback_missing_params missing=%s",
-            ",".join(missing),
+            "github_install_callback_missing_params missing=state"
+        )
+        return RedirectResponse(
+            url=f"{frontend_teams}?github_install_error=missing_params",
+            status_code=302,
+        )
+
+    # When GitHub's OAuth Callback URL flow is used, GitHub sends code+state
+    # but NOT installation_id. Exchange the code for a user token and resolve
+    # the installation_id via /user/installations.
+    resolved_installation_id = installation_id
+    if resolved_installation_id is None and code:
+        try:
+            resolved_installation_id = await _resolve_installation_id_from_oauth_code(
+                session, code
+            )
+        except HTTPException as exc:
+            detail = exc.detail
+            reason = detail.get("detail", "unknown") if isinstance(detail, dict) else str(detail)
+            logger.warning(
+                "github_install_callback_oauth_exchange_failed reason=%s", reason
+            )
+            return RedirectResponse(
+                url=f"{frontend_teams}?github_install_error={reason}",
+                status_code=302,
+            )
+
+    if not resolved_installation_id:
+        logger.warning(
+            "github_install_callback_missing_params missing=installation_id"
         )
         return RedirectResponse(
             url=f"{frontend_teams}?github_install_error=missing_params",
@@ -469,7 +681,7 @@ async def github_install_callback_get(
         )
 
     try:
-        await _process_install_callback(session, installation_id, state)
+        await _process_install_callback(session, resolved_installation_id, state)
     except HTTPException as exc:
         detail = exc.detail
         if isinstance(detail, dict):

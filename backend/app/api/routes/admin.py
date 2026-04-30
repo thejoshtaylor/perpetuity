@@ -214,6 +214,7 @@ MAX_VOICE_TRANSCRIBES_PER_HOUR_GLOBAL = "max_voice_transcribes_per_hour_global"
 
 GITHUB_APP_ID_KEY = "github_app_id"
 GITHUB_APP_CLIENT_ID_KEY = "github_app_client_id"
+GITHUB_APP_CLIENT_SECRET_KEY = "github_app_client_secret"
 GITHUB_APP_SLUG_KEY = "github_app_slug"
 GITHUB_APP_PRIVATE_KEY_KEY = "github_app_private_key"
 GITHUB_APP_WEBHOOK_SECRET_KEY = "github_app_webhook_secret"
@@ -637,6 +638,11 @@ _VALIDATORS: dict[str, _SettingSpec] = {
     GITHUB_APP_CLIENT_ID_KEY: _SettingSpec(
         validator=_validate_github_app_client_id,
         sensitive=False,
+        generator=None,
+    ),
+    GITHUB_APP_CLIENT_SECRET_KEY: _SettingSpec(
+        validator=None,
+        sensitive=True,
         generator=None,
     ),
     GITHUB_APP_SLUG_KEY: _SettingSpec(
