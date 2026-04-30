@@ -2,13 +2,13 @@ import { expect, type Page, test } from "@playwright/test"
 
 // M005-oaptsz/S04/T03: voice contract spec.
 //
-// Verifies the universal voice coverage rule (D026):
-//   - eligible inputs (login email) render a mic button via the auto-wrapping
-//     <Input> primitive,
+// Verifies the voice coverage rules:
+//   - single-line <input> fields (login email, admin form fields) never render
+//     a mic button — voice dictation is textarea-only,
 //   - sensitive inputs (login password, system-secret PEM textarea, OTP-style
 //     fields) never render a mic,
-//   - clicking mic + stop injects the transcribed text through the wrapped
-//     onChange so react-hook-form values update normally,
+//   - clicking mic + stop on a textarea injects the transcribed text through
+//     the wrapped onChange so react-hook-form values update normally,
 //   - a 429 response from the backend surfaces as an inline retryable message
 //     and the field's existing typed text is preserved,
 //   - a malformed (missing-text) response surfaces as an inline error and
@@ -17,8 +17,6 @@ import { expect, type Page, test } from "@playwright/test"
 // MediaRecorder + getUserMedia are stubbed via page.addInitScript so the spec
 // runs without real microphone access. The /api/v1/voice/transcribe endpoint
 // is stubbed via page.route so the spec stays self-contained.
-
-const TRANSCRIBE_URL = "**/api/v1/voice/transcribe"
 
 interface InstallMocksOptions {
   // The text the next "transcription" should yield. Default keeps a single
@@ -120,10 +118,10 @@ async function installRecorderMocks(
   }, transcript)
 }
 
-test.describe("M005-oaptsz voice — universal coverage and opt-outs", () => {
+test.describe("M005-oaptsz voice — input fields never show mic", () => {
   test.use({ storageState: { cookies: [], origins: [] } })
 
-  test("login email field shows mic; password field never does", async ({
+  test("login email and password fields never show mic (input-only page)", async ({
     page,
   }) => {
     await installRecorderMocks(page)
@@ -133,25 +131,14 @@ test.describe("M005-oaptsz voice — universal coverage and opt-outs", () => {
     const emailInput = page.getByTestId("email-input")
     await expect(emailInput).toBeVisible()
 
-    // Mic toggle for the email field. The VoiceInput wrapper exposes a single
-    // mic button per eligible input with this stable testid.
-    const micButtons = page.getByTestId("voice-input-toggle")
+    // Single-line <input> fields must never render a voice-input-toggle —
+    // voice dictation is textarea-only.
     await expect(
-      micButtons,
-      "login email must render exactly one mic toggle",
-    ).toHaveCount(1)
+      page.getByTestId("voice-input-toggle"),
+      "no input field on the login page should render a mic toggle",
+    ).toHaveCount(0)
 
-    // The mic button must clear the >=44x44 touch-target floor (mobile audit
-    // contract — duplicated here so a regression in the voice button itself
-    // is caught even if the audit spec drifts).
-    const micBox = await micButtons.first().boundingBox()
-    expect(micBox).not.toBeNull()
-    expect(micBox?.width ?? 0).toBeGreaterThanOrEqual(44)
-    expect(micBox?.height ?? 0).toBeGreaterThanOrEqual(44)
-
-    // Password field renders the PasswordInput primitive (no voice wrapper).
-    // No mic toggle is rendered next to it — assert by looking for the second
-    // toggle which must not exist.
+    // Password field also must have no mic toggle.
     await expect(page.getByTestId("password-input")).toBeVisible()
     await expect(
       page.locator(
@@ -160,133 +147,30 @@ test.describe("M005-oaptsz voice — universal coverage and opt-outs", () => {
       "password field must not render a mic toggle",
     ).toHaveCount(0)
   })
-
-  test("mic click + stop injects transcript through onChange", async ({
-    page,
-  }) => {
-    await installRecorderMocks(page, { transcript: "claude is listening" })
-    await page.route(TRANSCRIBE_URL, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ text: "claude is listening" }),
-      })
-    })
-    await page.goto("/login")
-
-    const emailInput = page.getByTestId("email-input")
-    await expect(emailInput).toBeVisible()
-
-    const mic = page.getByTestId("voice-input-toggle")
-    await mic.click()
-    // Mic flips to "Stop" once recording starts — the aria-label is the only
-    // user-visible state change.
-    await expect(mic).toHaveAttribute("aria-label", "Stop voice dictation")
-
-    await mic.click()
-
-    await expect(emailInput).toHaveValue("claude is listening", {
-      timeout: 4000,
-    })
-    // No inline error should be present on the happy path.
-    await expect(page.getByTestId("voice-input-error")).toHaveCount(0)
-  })
-
-  test("rate-limited 429 surfaces inline error and preserves typed text", async ({
-    page,
-  }) => {
-    await installRecorderMocks(page)
-    await page.route(TRANSCRIBE_URL, async (route) => {
-      await route.fulfill({
-        status: 429,
-        contentType: "application/json",
-        headers: { "Retry-After": "30" },
-        body: JSON.stringify({ detail: "voice_transcribe_rate_limited" }),
-      })
-    })
-    await page.goto("/login")
-
-    const emailInput = page.getByTestId("email-input")
-    await emailInput.fill("user@example.com")
-    await expect(emailInput).toHaveValue("user@example.com")
-
-    const mic = page.getByTestId("voice-input-toggle")
-    await mic.click()
-    await mic.click()
-
-    const error = page.getByTestId("voice-input-error")
-    await expect(error).toBeVisible({ timeout: 4000 })
-    // Inline message must mention rate-limit / retry — exact wording is owned
-    // by useVoiceRecorder.normalizeError; assert the user-recognisable hint
-    // rather than locking to a single phrase.
-    await expect(error).toHaveText(/rate.?limit|try again/i)
-
-    // Existing typed text MUST NOT be clobbered when transcription fails.
-    await expect(emailInput).toHaveValue("user@example.com")
-  })
-
-  test("malformed (missing text) response surfaces inline error", async ({
-    page,
-  }) => {
-    await installRecorderMocks(page)
-    await page.route(TRANSCRIBE_URL, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ unexpected: "shape" }),
-      })
-    })
-    await page.goto("/login")
-
-    const emailInput = page.getByTestId("email-input")
-    await emailInput.fill("keep@me.dev")
-
-    const mic = page.getByTestId("voice-input-toggle")
-    await mic.click()
-    await mic.click()
-
-    const error = page.getByTestId("voice-input-error")
-    await expect(error).toBeVisible({ timeout: 4000 })
-    await expect(emailInput).toHaveValue("keep@me.dev")
-  })
 })
 
 test.describe("M005-oaptsz voice — sensitive opt-outs", () => {
   // Stays authenticated so we can reach /admin and admin user dialogs.
 
-  test("admin AddUser password fields render no mic toggle", async ({
+  test("admin AddUser dialog renders no mic toggles on any input field", async ({
     page,
   }) => {
     await installRecorderMocks(page)
     await page.goto("/admin")
     await page.waitForLoadState("networkidle").catch(() => {})
 
-    // Open the AddUser dialog. The trigger is the only "Add User" button on
-    // the admin page.
+    // Open the AddUser dialog.
     await page.getByRole("button", { name: "Add User" }).click()
 
     const dialog = page.getByRole("dialog")
     await expect(dialog).toBeVisible()
 
-    // Email + Full name fields are eligible — they must render mic toggles.
-    // Wait until at least one mic is visible before counting password mics so
-    // a slow render doesn't make the negative assertion vacuous.
-    await expect(dialog.getByTestId("voice-input-toggle").first()).toBeVisible()
-
-    // Password and Confirm Password use PasswordInput — the show/hide toggle
-    // has aria-label "Show password" / "Hide password", which is the only
-    // adjacent button on those rows. The voice-input-toggle locator is what
-    // would mistakenly match if a regression converted them to <Input>; assert
-    // by matching the exact count of mic toggles in the dialog.
-    //
-    // Eligible fields in this dialog (when patched in T03):
-    //   - email (1)
-    //   - full_name (1)
-    // = 2 mic toggles. Password + Confirm Password contribute zero.
-    await expect(dialog.getByTestId("voice-input-toggle")).toHaveCount(2)
+    // Voice dictation is textarea-only — single-line input fields (email,
+    // full_name, password, confirm password) must not render mic toggles.
+    await expect(dialog.getByTestId("voice-input-toggle")).toHaveCount(0)
 
     // Sanity: the show-password buttons are present, proving the password
-    // fields are PasswordInput, not the auto-wrapped Input primitive.
+    // fields are PasswordInput, not a raw input.
     await expect(
       dialog.getByRole("button", { name: "Show password" }),
     ).toHaveCount(2)
