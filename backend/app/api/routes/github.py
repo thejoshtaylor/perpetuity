@@ -57,7 +57,7 @@ from sqlalchemy import text
 from sqlmodel import col, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.api.routes.admin import GITHUB_APP_CLIENT_ID_KEY
+from app.api.routes.admin import GITHUB_APP_CLIENT_ID_KEY, GITHUB_APP_SLUG_KEY
 from app.api.team_access import assert_caller_is_team_admin
 from app.core.config import settings
 from app.models import (
@@ -287,29 +287,31 @@ def get_github_install_url(
 ) -> Any:
     """Mint an install-state JWT and return the GitHub App install URL.
 
-    Requires the caller to be a team admin. Reads `github_app_client_id`
-    from `system_settings` to build the install URL — when the operator has
-    not yet seeded the App credentials, returns 404 `github_app_not_configured`
-    so the FE can prompt the system admin to fill in the missing setting.
+    Requires the caller to be a team admin. Reads `github_app_slug` from
+    `system_settings` to build the install URL — the slug is the app's
+    short name used in github.com/apps/{slug}/installations/new (distinct
+    from the numeric App ID and the OAuth Client ID). When the operator has
+    not yet seeded the slug, returns 404 `github_app_not_configured` so the
+    FE can prompt the system admin to fill in the missing setting.
     """
     assert_caller_is_team_admin(session, team_id, current_user.id)
 
-    client_id_row = session.get(SystemSetting, GITHUB_APP_CLIENT_ID_KEY)
+    slug_row = session.get(SystemSetting, GITHUB_APP_SLUG_KEY)
     if (
-        client_id_row is None
-        or not client_id_row.has_value
-        or not isinstance(client_id_row.value, str)
-        or not client_id_row.value
+        slug_row is None
+        or not slug_row.has_value
+        or not isinstance(slug_row.value, str)
+        or not slug_row.value
     ):
         raise HTTPException(
             status_code=404, detail="github_app_not_configured"
         )
-    client_id: str = client_id_row.value
+    app_slug: str = slug_row.value
 
     state, exp, jti = _mint_install_state(team_id)
     install_url = (
         f"{settings.GITHUB_APP_INSTALL_URL_BASE.rstrip('/')}"
-        f"/apps/{client_id}/installations/new?state={state}"
+        f"/apps/{app_slug}/installations/new?state={state}"
     )
 
     logger.info(

@@ -788,6 +788,7 @@ def test_put_mirror_idle_timeout_seconds_zero_returns_422(
 
 GITHUB_APP_ID = "github_app_id"
 GITHUB_APP_CLIENT_ID = "github_app_client_id"
+GITHUB_APP_SLUG = "github_app_slug"
 GITHUB_APP_PRIVATE_KEY = "github_app_private_key"
 GITHUB_APP_WEBHOOK_SECRET = "github_app_webhook_secret"
 
@@ -994,6 +995,35 @@ def test_put_github_app_client_id_empty_returns_422(
 ) -> None:
     r = client.put(
         f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_CLIENT_ID}",
+        json={"value": ""},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 422
+
+
+def test_put_github_app_slug_stores_string(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_SLUG}",
+        json={"value": "my-company-app"},
+        cookies=superuser_cookies,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["value"] == "my-company-app"
+    g = client.get(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_SLUG}",
+        cookies=superuser_cookies,
+    )
+    assert g.json()["value"] == "my-company-app"
+    assert g.json()["sensitive"] is False
+
+
+def test_put_github_app_slug_empty_returns_422(
+    client: TestClient, superuser_cookies: httpx.Cookies
+) -> None:
+    r = client.put(
+        f"{ADMIN_SETTINGS_URL}/{GITHUB_APP_SLUG}",
         json={"value": ""},
         cookies=superuser_cookies,
     )

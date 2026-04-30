@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlmodel import Session, delete
 
-from app.api.routes.admin import GITHUB_APP_CLIENT_ID_KEY
+from app.api.routes.admin import GITHUB_APP_CLIENT_ID_KEY, GITHUB_APP_SLUG_KEY
 from app.core.config import settings
 from app.models import GitHubAppInstallation, SystemSetting
 from tests.utils.utils import random_email, random_lower_string
@@ -38,7 +38,7 @@ TEAMS_URL = f"{API}/teams/"
 
 @pytest.fixture(autouse=True)
 def _clean_github_install_state(db: Session):
-    """Wipe github_app_installations + the github_app_client_id row.
+    """Wipe github_app_installations + the github_app_slug and github_app_client_id rows.
 
     Mirrors the test_admin_settings cleanup posture (MEM246): clean before
     AND after so a flake in one test cannot poison the next, and so the
@@ -49,7 +49,7 @@ def _clean_github_install_state(db: Session):
     db.execute(delete(GitHubAppInstallation))
     db.execute(
         delete(SystemSetting).where(
-            SystemSetting.key == GITHUB_APP_CLIENT_ID_KEY
+            SystemSetting.key.in_([GITHUB_APP_SLUG_KEY, GITHUB_APP_CLIENT_ID_KEY])
         )
     )
     db.commit()
@@ -57,7 +57,7 @@ def _clean_github_install_state(db: Session):
     db.execute(delete(GitHubAppInstallation))
     db.execute(
         delete(SystemSetting).where(
-            SystemSetting.key == GITHUB_APP_CLIENT_ID_KEY
+            SystemSetting.key.in_([GITHUB_APP_SLUG_KEY, GITHUB_APP_CLIENT_ID_KEY])
         )
     )
     db.commit()
@@ -90,11 +90,33 @@ def _create_team(
     return r.json()["id"]
 
 
-def _seed_client_id(db: Session, value: str = "Iv1.test-client-id") -> None:
-    """Seed `github_app_client_id` directly via INSERT...ON CONFLICT.
+def _seed_app_slug(db: Session, value: str = "test-app-slug") -> None:
+    """Seed `github_app_slug` directly via INSERT...ON CONFLICT.
 
     We bypass the admin PUT path so this test stays focused on the github
     router; the admin path is exercised in test_admin_settings.
+    """
+    db.execute(
+        text(
+            """
+            INSERT INTO system_settings
+                (key, value, value_encrypted, sensitive, has_value, updated_at)
+            VALUES
+                (:key, CAST(:value AS JSONB), NULL, FALSE, TRUE, NOW())
+            ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value, has_value = TRUE, updated_at = NOW()
+            """
+        ),
+        {"key": GITHUB_APP_SLUG_KEY, "value": json.dumps(value)},
+    )
+    db.commit()
+
+
+def _seed_client_id(db: Session, value: str = "Iv1.test-client-id") -> None:
+    """Seed `github_app_client_id` directly via INSERT...ON CONFLICT.
+
+    Kept for tests that verify the admin settings path for client_id;
+    the install-url endpoint no longer reads this key.
     """
     db.execute(
         text(
@@ -236,10 +258,10 @@ def _mint_state(
 def test_install_url_returns_signed_state_and_url(
     client: TestClient, db: Session
 ) -> None:
-    """Happy path: state JWT shape verifies, URL embeds client_id + state."""
+    """Happy path: state JWT shape verifies, URL embeds app slug + state."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies)
-    _seed_client_id(db, "Iv1.unit-test-client")
+    _seed_app_slug(db, "unit-test-app")
 
     r = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
@@ -250,7 +272,7 @@ def test_install_url_returns_signed_state_and_url(
     assert "install_url" in body and "state" in body and "expires_at" in body
 
     expected_prefix = (
-        f"{settings.GITHUB_APP_INSTALL_URL_BASE}/apps/Iv1.unit-test-client/installations/new?state="
+        f"{settings.GITHUB_APP_INSTALL_URL_BASE}/apps/unit-test-app/installations/new?state="
     )
     assert body["install_url"].startswith(expected_prefix), body["install_url"]
     assert body["install_url"].endswith(body["state"])
@@ -267,13 +289,13 @@ def test_install_url_returns_signed_state_and_url(
     assert (payload["exp"] - payload["iat"]) == 600
 
 
-def test_install_url_404_when_client_id_unset(
+def test_install_url_404_when_slug_unset(
     client: TestClient, db: Session
 ) -> None:
-    """No `github_app_client_id` row → 404 `github_app_not_configured`."""
+    """No `github_app_slug` row → 404 `github_app_not_configured`."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies)
-    # Deliberately do NOT seed the client id.
+    # Deliberately do NOT seed the app slug.
 
     r = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
@@ -288,7 +310,7 @@ def test_install_url_403_when_caller_is_not_team_admin(
     """Non-member caller → 403 from assert_caller_is_team_admin."""
     _, admin_cookies = _signup(client)
     team_id = _create_team(client, admin_cookies, "AdminOnly")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     _, other_cookies = _signup(client)
     r = client.get(
@@ -303,7 +325,7 @@ def test_install_url_unauthenticated_returns_401(
     """Missing cookie → 401 from get_current_user."""
     _, admin_cookies = _signup(client)
     team_id = _create_team(client, admin_cookies, "NoCookie")
-    _seed_client_id(db)
+    _seed_app_slug(db)
     client.cookies.clear()
 
     r = client.get(f"{API}/teams/{team_id}/github/install-url")
@@ -321,7 +343,7 @@ def test_install_callback_happy_path_persists_row(
     """Valid state + orchestrator lookup → 200 + row persisted."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "CallbackTeam")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     r1 = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
@@ -373,7 +395,7 @@ def test_install_callback_idempotent_on_duplicate_installation_id(
     """Two callbacks with the same installation_id → both 200, one row."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "DupeTeam")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     state = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
@@ -430,7 +452,7 @@ def test_install_callback_team_reassignment_logs_warning(
     team_a = _create_team(client, cookies_a, "TeamA")
     _, cookies_b = _signup(client)
     team_b = _create_team(client, cookies_b, "TeamB")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     state_a = client.get(
         f"{API}/teams/{team_a}/github/install-url", cookies=cookies_a
@@ -486,7 +508,7 @@ def test_install_callback_expired_state_returns_400(
     """State expired by 60s → 400 install_state_expired."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "ExpiredState")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     expired = _mint_state(team_id, exp_delta_seconds=-60, iat_delta_seconds=-660)
     client.cookies.clear()
@@ -504,7 +526,7 @@ def test_install_callback_bad_signature_returns_400(
     """State signed with the wrong secret → 400 install_state_invalid."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "BadSig")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     bad = _mint_state(team_id, secret="not-the-real-secret-xxxxxxxxxxxxxxxxxx")
     client.cookies.clear()
@@ -522,7 +544,7 @@ def test_install_callback_wrong_audience_returns_400(
     """State with audience='not-github' → 400 install_state_invalid."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "BadAud")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     bad = _mint_state(team_id, audience="not-github")
     client.cookies.clear()
@@ -614,7 +636,7 @@ def test_install_callback_orchestrator_error_returns_502(
     """Orchestrator returns 503 → 502 github_lookup_failed."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "OrchFail")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     state = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
@@ -654,7 +676,7 @@ def test_install_callback_orchestrator_timeout_returns_502_timeout(
     """Orchestrator times out → 502 reason='timeout'."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "Timeout")
-    _seed_client_id(db)
+    _seed_app_slug(db)
     state = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
     ).json()["state"]
@@ -686,7 +708,7 @@ def test_install_callback_orchestrator_malformed_returns_502_malformed(
     """Orchestrator returns non-JSON → 502 reason='malformed_lookup_response'."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "Malformed")
-    _seed_client_id(db)
+    _seed_app_slug(db)
     state = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
     ).json()["state"]
@@ -718,7 +740,7 @@ def test_install_callback_orchestrator_missing_keys_returns_502_malformed(
     """Orchestrator returns JSON missing account_login → 502 malformed."""
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "MissKeys")
-    _seed_client_id(db)
+    _seed_app_slug(db)
     state = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
     ).json()["state"]
@@ -752,7 +774,7 @@ def test_list_installations_returns_rows_ordered_by_created_at_desc(
 ) -> None:
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "ListTeam")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     # Two installs with different installation_ids.
     for inst_id in (101, 102):
@@ -792,7 +814,7 @@ def test_list_installations_empty_returns_empty_envelope(
 ) -> None:
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "EmptyList")
-    _seed_client_id(db)
+    _seed_app_slug(db)
     r = client.get(
         f"{API}/teams/{team_id}/github/installations", cookies=cookies
     )
@@ -838,7 +860,7 @@ def test_delete_installation_404_when_row_belongs_to_other_team(
     team_a = _create_team(client, cookies_a, "DelOwnerA")
     _, cookies_b = _signup(client)
     team_b = _create_team(client, cookies_b, "DelOtherB")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     state = client.get(
         f"{API}/teams/{team_a}/github/install-url", cookies=cookies_a
@@ -870,7 +892,7 @@ def test_delete_installation_happy_path_removes_row(
 ) -> None:
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "DelHappy")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     state = client.get(
         f"{API}/teams/{team_id}/github/install-url", cookies=cookies
@@ -934,7 +956,7 @@ def test_install_url_log_does_not_contain_full_state(
 
     _, cookies = _signup(client)
     team_id = _create_team(client, cookies, "LogRedact")
-    _seed_client_id(db)
+    _seed_app_slug(db)
 
     with caplog.at_level(_logging.INFO, logger="app.api.routes.github"):
         r = client.get(

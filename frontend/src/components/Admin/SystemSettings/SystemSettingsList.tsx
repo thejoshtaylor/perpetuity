@@ -110,6 +110,13 @@ const SETTING_META: Record<string, SettingMeta> = {
     inputType: "text",
     placeholder: "e.g. Iv1.abc123def456",
   },
+  github_app_slug: {
+    label: "GitHub App Slug",
+    description:
+      "The URL slug for your GitHub App — the short name shown in the install URL: github.com/apps/{slug}/installations/new. Found on the GitHub App settings page as the app name in lowercase with hyphens. This is different from the Client ID.",
+    inputType: "text",
+    placeholder: "e.g. my-company-app",
+  },
   github_app_private_key: {
     label: "GitHub App Private Key (PEM)",
     description:
@@ -179,6 +186,7 @@ const SETTING_GROUPS: SettingGroup[] = [
     keys: [
       "github_app_id",
       "github_app_client_id",
+      "github_app_slug",
       "github_app_private_key",
       "github_app_webhook_secret",
     ],
