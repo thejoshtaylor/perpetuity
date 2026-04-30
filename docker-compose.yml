@@ -336,7 +336,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        - VITE_API_URL=https://api.${DOMAIN?Variable not set}
+        - VITE_API_URL=https://${DOMAIN?Variable not set}
         - NODE_ENV=production
 volumes:
   app-db-data:
