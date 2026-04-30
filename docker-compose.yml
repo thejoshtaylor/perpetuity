@@ -45,6 +45,19 @@ services:
       retries: 5
       start_period: 10s
 
+  # Builds perpetuity/workspace:latest locally so the orchestrator can pull
+  # it from the local daemon without hitting a registry. The service exits
+  # immediately after the image exists; docker compose build handles the
+  # actual layer cache so subsequent `up` runs are instant unless the
+  # Dockerfile changes.
+  workspace-image:
+    image: perpetuity/workspace:latest
+    build:
+      context: orchestrator/workspace-image
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["true"]
+
   # S02/T03: prepare /var/lib/perpetuity/workspaces as a shared mountpoint
   # on the host (linuxkit VM) BEFORE the orchestrator boots. This enables
   # bind-mount propagation from orchestrator to host so that loopback-ext4
@@ -82,6 +95,8 @@ services:
       redis:
         condition: service_healthy
       workspace-mount-init:
+        condition: service_completed_successfully
+      workspace-image:
         condition: service_completed_successfully
     # D005: orchestrator is the ONLY service that mounts the Docker socket.
     # NOTE: orchestrator does NOT depend on prestart (the backend container
