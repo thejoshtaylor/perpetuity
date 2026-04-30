@@ -86,19 +86,39 @@ def _seed_volume(
 def test_list_settings_empty_returns_envelope(
     client: TestClient, superuser_cookies: httpx.Cookies
 ) -> None:
-    """Happy path on empty table: `{data: [], count: 0}`."""
+    """Empty DB still returns one row per registered key, all with has_value=False.
+
+    The list endpoint merges the _VALIDATORS registry with DB rows so the
+    frontend renders the full settings panel on a fresh deployment instead of
+    showing the "No system settings registered" empty state.
+    """
+    from app.api.routes.admin import _VALIDATORS
+
     r = client.get(ADMIN_SETTINGS_URL, cookies=superuser_cookies)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body == {"data": [], "count": 0}
+    expected_count = len(_VALIDATORS)
+    assert body["count"] == expected_count
+    assert len(body["data"]) == expected_count
+    # All rows have has_value=False (nothing has been PUT yet)
+    assert all(row["has_value"] is False for row in body["data"])
+    # Rows are sorted by key
+    keys = [row["key"] for row in body["data"]]
+    assert keys == sorted(keys)
+    # Every registered key is present
+    assert set(keys) == set(_VALIDATORS.keys())
 
 
 def test_list_settings_populated_returns_rows_ordered_by_key(
     client: TestClient, superuser_cookies: httpx.Cookies
 ) -> None:
-    """Two PUTs land two rows; GET returns them ordered alphabetically by key."""
-    # Only workspace_volume_size_gb is registered today; for ordering we need
-    # at least one. Insert one via the API and assert envelope shape.
+    """PUT one setting; GET returns all registered keys ordered alphabetically.
+
+    The PUT'd key has its value and has_value=True; all other registered keys
+    appear with has_value=False (not yet set).
+    """
+    from app.api.routes.admin import _VALIDATORS
+
     r_put = client.put(
         f"{ADMIN_SETTINGS_URL}/{WORKSPACE_VOLUME_SIZE_GB}",
         json={"value": 4},
@@ -109,10 +129,18 @@ def test_list_settings_populated_returns_rows_ordered_by_key(
     r = client.get(ADMIN_SETTINGS_URL, cookies=superuser_cookies)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["count"] == 1
-    assert body["data"][0]["key"] == WORKSPACE_VOLUME_SIZE_GB
-    assert body["data"][0]["value"] == 4
-    assert "updated_at" in body["data"][0]
+    # All registered keys are present regardless of which were PUT
+    assert body["count"] == len(_VALIDATORS)
+    keys = [row["key"] for row in body["data"]]
+    assert keys == sorted(keys)
+    # The PUT'd key has its value and has_value=True
+    vol_row = next(row for row in body["data"] if row["key"] == WORKSPACE_VOLUME_SIZE_GB)
+    assert vol_row["value"] == 4
+    assert vol_row["has_value"] is True
+    assert "updated_at" in vol_row
+    # All other keys have has_value=False
+    unset = [row for row in body["data"] if row["key"] != WORKSPACE_VOLUME_SIZE_GB]
+    assert all(row["has_value"] is False for row in unset)
 
 
 # ---------------------------------------------------------------------------

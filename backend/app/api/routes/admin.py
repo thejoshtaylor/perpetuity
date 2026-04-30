@@ -711,16 +711,35 @@ def list_system_settings(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> dict[str, Any]:
-    """List all system settings, ordered by key.
+    """List all registered system settings, ordered by key.
 
-    Returns `{data: [SystemSettingPublic, ...], count}`. The full set is
-    expected to stay tiny (one row per registered key), so no pagination.
-    Sensitive rows have their `value` redacted to `null` — clients use
-    `has_value` to render the `Set` vs `Replace` UI.
+    Returns `{data: [SystemSettingPublic, ...], count}`. One entry per key in
+    `_VALIDATORS` — keys with no DB row are returned with `has_value=False` so
+    the frontend always renders the full settings panel on a fresh deployment.
+    The full set is expected to stay tiny (one row per registered key), so no
+    pagination. Sensitive rows have their `value` redacted to `null` — clients
+    use `has_value` to render the `Set` vs `Replace` UI.
     """
-    statement = select(SystemSetting).order_by(col(SystemSetting.key))
-    rows = session.exec(statement).all()
-    data = [_redact(row) for row in rows]
+    existing = {
+        row.key: row
+        for row in session.exec(select(SystemSetting)).all()
+    }
+    data: list[SystemSettingPublic] = []
+    for key in sorted(_VALIDATORS.keys()):
+        spec = _VALIDATORS[key]
+        row = existing.get(key)
+        if row is None:
+            data.append(
+                SystemSettingPublic(
+                    key=key,
+                    sensitive=spec.sensitive,
+                    has_value=False,
+                    value=None,
+                    updated_at=None,
+                )
+            )
+        else:
+            data.append(_redact(row))
     logger.info(
         "system_settings_listed actor_id=%s count=%s",
         current_user.id,
