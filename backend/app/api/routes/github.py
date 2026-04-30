@@ -8,13 +8,16 @@ Endpoints:
         `team_id` so the public callback can attribute the install to the
         right team without trusting GitHub-supplied query params alone.
 
+  - `GET    /api/v1/github/install-callback`
+        PUBLIC. GitHub redirects the operator's browser here (GET) after the
+        install handshake, passing installation_id, setup_action, and state as
+        query params. Validates the state JWT, persists the installation, then
+        redirects the browser to the frontend teams page. Configure this URL as
+        the GitHub App "Setup URL" (or "Callback URL") in your GitHub App settings.
+
   - `POST   /api/v1/github/install-callback`
-        PUBLIC. GitHub redirects the operator's browser back here after the
-        install handshake. Validates the state JWT (HS256, audience pinned to
-        `github-install`, 10-minute expiry), confirms the team still exists,
-        looks up the installation account via the orchestrator, and UPSERTs a
-        `github_app_installations` row. Idempotent on duplicate
-        `installation_id`.
+        PUBLIC. Same logic as the GET callback but accepts params as a JSON
+        request body — kept for API clients and existing tests.
 
   - `GET    /api/v1/teams/{team_id}/github/installations`
         Team-admin gated. Lists installations bound to the team, ordered by
@@ -52,7 +55,8 @@ from typing import Any
 
 import httpx
 import jwt
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 from sqlmodel import col, select
 
@@ -327,25 +331,19 @@ def get_github_install_url(
     )
 
 
-@router.post(
-    "/github/install-callback", response_model=GitHubAppInstallationPublic
-)
-async def github_install_callback(
-    *,
-    session: SessionDep,
-    body: InstallCallbackBody,
-) -> Any:
-    """Public install-callback. GitHub redirects the operator's browser here.
+async def _process_install_callback(
+    session: Any,
+    installation_id: int,
+    state: str,
+) -> GitHubAppInstallationPublic:
+    """Shared core for both GET and POST install-callback handlers.
 
-    No FastAPI auth dep — the state JWT IS the auth: only a team admin who
-    walked the install-url path could have been issued one, and the 10-min
-    expiry bounds replay risk. Validates the state, confirms the team still
-    exists, looks up the installation via the orchestrator, then UPSERTs the
-    row by `installation_id`. A second callback for the same `installation_id`
-    is idempotent — the row's `team_id` is overwritten and a WARNING log
-    line records the reassignment.
+    Validates the state JWT, confirms the team exists, looks up the
+    installation via the orchestrator, and UPSERTs the row. Returns the
+    persisted installation record. Raises HTTPException on any validation or
+    upstream error — callers decide how to surface that to the browser.
     """
-    payload = _decode_install_state(body.state)
+    payload = _decode_install_state(state)
 
     presented_jti = _jti_prefix(payload.get("jti"))
     raw_team_id = payload.get("team_id")
@@ -367,15 +365,13 @@ async def github_install_callback(
         raise HTTPException(status_code=400, detail="install_state_team_unknown")
 
     # Orchestrator hop. Errors raise 502 from inside the helper.
-    lookup = await _orch_lookup_installation(body.installation_id)
+    lookup = await _orch_lookup_installation(installation_id)
     account_login: str = lookup["account_login"]
     account_type: str = lookup["account_type"]
 
-    # Detect prior ownership for the reassignment log line. We do this BEFORE
-    # the UPSERT so the existing row's team_id is still readable.
     existing = session.exec(
         select(GitHubAppInstallation).where(
-            GitHubAppInstallation.installation_id == body.installation_id
+            GitHubAppInstallation.installation_id == installation_id
         )
     ).first()
     if existing is not None and existing.team_id != state_team_id:
@@ -384,12 +380,9 @@ async def github_install_callback(
             " new_team_id=%s installation_id=%s",
             existing.team_id,
             state_team_id,
-            body.installation_id,
+            installation_id,
         )
 
-    # UPSERT keyed by installation_id (UNIQUE constraint from T01). RETURNING
-    # gives us the canonical row id even on the conflict path so the
-    # response shape is identical for first-write and idempotent-write.
     upsert = text(
         """
         INSERT INTO github_app_installations
@@ -408,7 +401,7 @@ async def github_install_callback(
         {
             "id": uuid.uuid4(),
             "team_id": state_team_id,
-            "installation_id": body.installation_id,
+            "installation_id": installation_id,
             "account_login": account_login,
             "account_type": account_type,
         },
@@ -420,7 +413,7 @@ async def github_install_callback(
         "github_install_callback_accepted team_id=%s installation_id=%s"
         " account_login=%s account_type=%s state_jti=%s",
         state_team_id,
-        body.installation_id,
+        installation_id,
         account_login,
         account_type,
         presented_jti,
@@ -433,6 +426,59 @@ async def github_install_callback(
         account_login=row.account_login,
         account_type=row.account_type,
         created_at=row.created_at,
+    )
+
+
+@router.get("/github/install-callback")
+async def github_install_callback_get(
+    *,
+    session: SessionDep,
+    installation_id: int = Query(ge=1),
+    setup_action: str = Query(max_length=64),
+    state: str = Query(min_length=1),
+) -> RedirectResponse:
+    """Browser-facing GET callback — configure this as the GitHub App Setup URL.
+
+    GitHub redirects the operator's browser here (GET) after installation,
+    passing installation_id, setup_action, and state as query params. This
+    handler validates the state JWT, persists the installation, then
+    redirects back to the frontend teams page so the operator sees the new
+    connection listed immediately.
+
+    On error the browser is redirected to the frontend with a
+    `github_install_error` query param so the UI can surface a toast.
+    """
+    frontend_teams = f"{settings.FRONTEND_HOST.rstrip('/')}/teams"
+    try:
+        await _process_install_callback(session, installation_id, state)
+    except HTTPException as exc:
+        detail = exc.detail
+        if isinstance(detail, dict):
+            reason = detail.get("detail", "unknown")
+        else:
+            reason = str(detail)
+        return RedirectResponse(
+            url=f"{frontend_teams}?github_install_error={reason}",
+            status_code=302,
+        )
+    return RedirectResponse(url=frontend_teams, status_code=302)
+
+
+@router.post(
+    "/github/install-callback", response_model=GitHubAppInstallationPublic
+)
+async def github_install_callback(
+    *,
+    session: SessionDep,
+    body: InstallCallbackBody,
+) -> Any:
+    """API-client callback — same logic as GET but accepts a JSON body.
+
+    Kept for API clients and backward compatibility. Browser-initiated
+    installs should use the GET endpoint (GitHub's Setup URL redirect).
+    """
+    return await _process_install_callback(
+        session, body.installation_id, body.state
     )
 
 

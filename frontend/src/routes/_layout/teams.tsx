@@ -1,7 +1,9 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { Users } from "lucide-react"
-import { Suspense } from "react"
+import { Suspense, useEffect } from "react"
+import { toast } from "sonner"
+import { z } from "zod"
 
 import { TeamsService, type TeamWithRole } from "@/client"
 import CreateTeamDialog from "@/components/Teams/CreateTeamDialog"
@@ -24,7 +26,12 @@ function getTeamsQueryOptions() {
   }
 }
 
+const teamsSearchSchema = z.object({
+  github_install_error: z.string().optional(),
+})
+
 export const Route = createFileRoute("/_layout/teams")({
+  validateSearch: teamsSearchSchema,
   component: Teams,
   head: () => ({
     meta: [
@@ -135,6 +142,18 @@ function TeamsList() {
 }
 
 function Teams() {
+  const { github_install_error } = Route.useSearch()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!github_install_error) return
+    toast.error("GitHub App installation failed", {
+      description: `Error: ${github_install_error}. Contact your system administrator if this persists.`,
+    })
+    // Strip the query param so a refresh doesn't re-toast.
+    navigate({ to: "/teams", search: {}, replace: true })
+  }, [github_install_error, navigate])
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">

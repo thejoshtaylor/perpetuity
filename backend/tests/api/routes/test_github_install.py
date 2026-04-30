@@ -972,3 +972,79 @@ def test_install_url_log_does_not_contain_full_state(
     # The state JWT has at least 100 chars; even any 32-char window of it
     # should not appear in logs.
     assert state[:64] not in captured
+
+
+# ---------------------------------------------------------------------------
+# GET /github/install-callback — browser redirect flow
+# ---------------------------------------------------------------------------
+
+
+def test_get_install_callback_happy_path_redirects_to_frontend(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET callback: valid state + orchestrator lookup → 302 to frontend /teams."""
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "GetCallbackHappy")
+    _seed_app_slug(db)
+
+    r1 = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    )
+    state = r1.json()["state"]
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", "/v1/installations/555001/lookup"): _FakeResponse(
+            200,
+            {"account_login": "get-org", "account_type": "Organization"},
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r2 = client.get(
+        f"{API}/github/install-callback",
+        params={
+            "installation_id": 555001,
+            "setup_action": "install",
+            "state": state,
+        },
+        follow_redirects=False,
+    )
+    assert r2.status_code == 302, r2.text
+    location = r2.headers["location"]
+    assert location.endswith("/teams"), f"unexpected redirect: {location!r}"
+    assert "github_install_error" not in location
+
+    # Verify row was persisted.
+    db.expire_all()
+    row = db.exec(
+        text(
+            "SELECT installation_id, account_login, team_id"
+            " FROM github_app_installations WHERE installation_id = 555001"
+        )
+    ).one()
+    assert row.account_login == "get-org"
+    assert str(row.team_id) == team_id
+
+
+def test_get_install_callback_bad_state_redirects_with_error(
+    client: TestClient, db: Session
+) -> None:
+    """GET callback with invalid state → 302 to /teams?github_install_error=..."""
+    _, cookies = _signup(client)
+    _create_team(client, cookies, "GetCallbackErr")
+    _seed_app_slug(db)
+
+    client.cookies.clear()
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={
+            "installation_id": 555002,
+            "setup_action": "install",
+            "state": "not.a.valid.jwt",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    location = r.headers["location"]
+    assert "github_install_error" in location
