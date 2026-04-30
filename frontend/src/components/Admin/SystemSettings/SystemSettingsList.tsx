@@ -113,7 +113,7 @@ const SETTING_META: Record<string, SettingMeta> = {
   github_app_slug: {
     label: "GitHub App Slug",
     description:
-      "The URL slug for your GitHub App — the short name shown in the install URL: github.com/apps/{slug}/installations/new. Found on the GitHub App settings page as the app name in lowercase with hyphens. This is different from the Client ID.",
+      "The URL slug for your GitHub App — the short name shown in the install URL: github.com/apps/{slug}/installations/new. Found on the GitHub App settings page as the app name in lowercase with hyphens. This is different from the Client ID. Important: on your GitHub App settings page, set 'Where can this GitHub App be installed?' to 'Any account' — otherwise only the owner account can install it and other orgs will see a 404.",
     inputType: "text",
     placeholder: "e.g. my-company-app",
   },
