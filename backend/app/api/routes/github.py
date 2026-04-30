@@ -433,22 +433,41 @@ async def _process_install_callback(
 async def github_install_callback_get(
     *,
     session: SessionDep,
-    installation_id: int = Query(ge=1),
-    setup_action: str = Query(max_length=64),
-    state: str = Query(min_length=1),
+    installation_id: int | None = Query(default=None, ge=1),
+    setup_action: str | None = Query(default=None, max_length=64),
+    state: str | None = Query(default=None, min_length=1),
+    code: str | None = Query(default=None),
 ) -> RedirectResponse:
-    """Browser-facing GET callback — configure this as the GitHub App Setup URL.
+    """Browser-facing GET callback — configure as GitHub App Setup URL or Callback URL.
 
-    GitHub redirects the operator's browser here (GET) after installation,
-    passing installation_id, setup_action, and state as query params. This
-    handler validates the state JWT, persists the installation, then
-    redirects back to the frontend teams page so the operator sees the new
-    connection listed immediately.
+    GitHub redirects the operator's browser here after installation. When the
+    GitHub App has OAuth enabled, configure this URL as the "Callback URL"
+    (under "Identifying and authorizing users") — GitHub sends
+    installation_id, setup_action, state, and code as query params. When
+    OAuth is disabled, configure it as the "Setup URL" and GitHub omits code.
 
-    On error the browser is redirected to the frontend with a
-    `github_install_error` query param so the UI can surface a toast.
+    All params are optional at the transport layer so FastAPI never 422-rejects
+    a GitHub redirect due to a missing param variant. The handler validates
+    what it needs (installation_id + state) and redirects to the frontend with
+    a github_install_error param on any failure so the UI can surface a toast.
     """
     frontend_teams = f"{settings.FRONTEND_HOST.rstrip('/')}/teams"
+
+    if not installation_id or not state:
+        missing = []
+        if not installation_id:
+            missing.append("installation_id")
+        if not state:
+            missing.append("state")
+        logger.warning(
+            "github_install_callback_missing_params missing=%s",
+            ",".join(missing),
+        )
+        return RedirectResponse(
+            url=f"{frontend_teams}?github_install_error=missing_params",
+            status_code=302,
+        )
+
     try:
         await _process_install_callback(session, installation_id, state)
     except HTTPException as exc:

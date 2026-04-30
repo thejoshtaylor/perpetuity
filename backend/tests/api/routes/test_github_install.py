@@ -1048,3 +1048,64 @@ def test_get_install_callback_bad_state_redirects_with_error(
     assert r.status_code == 302, r.text
     location = r.headers["location"]
     assert "github_install_error" in location
+
+
+def test_get_install_callback_missing_params_redirects_with_error(
+    client: TestClient,
+) -> None:
+    """GET callback with no installation_id or state → 302 with missing_params error.
+
+    GitHub OAuth callback URL may be hit without all expected params in some
+    edge flows. The handler must never 422 — always redirect with an error.
+    """
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"code": "someauthcode"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    location = r.headers["location"]
+    assert "github_install_error=missing_params" in location
+
+
+def test_get_install_callback_with_oauth_code_and_install_params_succeeds(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET callback with extra 'code' param (OAuth flow) still processes install.
+
+    When GitHub App OAuth is enabled, GitHub appends a 'code' param to the
+    callback URL alongside installation_id, setup_action, and state. The
+    handler should ignore 'code' and process the install normally.
+    """
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "GetCallbackOAuth")
+    _seed_app_slug(db)
+
+    r1 = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    )
+    state = r1.json()["state"]
+
+    routes: dict[tuple[str, str], object] = {
+        ("GET", "/v1/installations/555003/lookup"): _FakeResponse(
+            200,
+            {"account_login": "oauth-org", "account_type": "Organization"},
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r2 = client.get(
+        f"{API}/github/install-callback",
+        params={
+            "installation_id": 555003,
+            "setup_action": "install",
+            "state": state,
+            "code": "ghu_someoauthcode",
+        },
+        follow_redirects=False,
+    )
+    assert r2.status_code == 302, r2.text
+    location = r2.headers["location"]
+    assert location.endswith("/teams"), f"unexpected redirect: {location!r}"
+    assert "github_install_error" not in location
