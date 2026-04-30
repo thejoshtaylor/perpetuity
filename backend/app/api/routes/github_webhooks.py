@@ -206,7 +206,10 @@ def _insert_event(
             (id, installation_id, event_type, delivery_id, payload,
              received_at, dispatch_status)
         VALUES
-            (:id, :iid, :etype, :did, CAST(:payload AS JSONB),
+            (:id,
+             (SELECT installation_id FROM github_app_installations
+              WHERE installation_id = :iid),
+             :etype, :did, CAST(:payload AS JSONB),
              NOW(), 'noop')
         ON CONFLICT (delivery_id) DO NOTHING
         RETURNING id
