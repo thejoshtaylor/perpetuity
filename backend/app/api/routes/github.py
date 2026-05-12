@@ -72,6 +72,7 @@ from app.api.routes.admin import (
 from app.api.team_access import assert_caller_is_team_admin
 from app.core.config import settings
 from app.core.encryption import SystemSettingDecryptError, decrypt_setting
+from app.core.github_user_tokens import encrypt_user_token
 from app.models import (
     GitHubAppInstallation,
     GitHubAppInstallationPublic,
@@ -388,7 +389,7 @@ async def _resolve_installation_id_from_oauth_code(
     try:
         async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
             token_resp = await c.post(
-                "https://github.com/login/oauth/access_token",
+                f"{settings.GITHUB_OAUTH_BASE_URL.rstrip('/')}/login/oauth/access_token",
                 json={
                     "client_id": client_id,
                     "client_secret": client_secret,
@@ -485,7 +486,7 @@ async def _resolve_installation_id_from_oauth_code(
     try:
         async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
             installs_resp = await c.get(
-                "https://api.github.com/user/installations",
+                f"{settings.GITHUB_API_BASE_URL.rstrip('/')}/user/installations",
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Accept": "application/vnd.github+json",
@@ -555,6 +556,71 @@ async def _resolve_installation_id_from_oauth_code(
 
 
 # ---------------------------------------------------------------------------
+# GitHub user-id lookup helper
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_github_user_id(access_token: str) -> int:
+    """Call GitHub GET /user and return the authenticated user's numeric id.
+
+    Uses the user-access token returned by the OAuth token exchange.  The id
+    is stored in `github_user_oauth_tokens.github_user_id` so the orchestrator
+    can later detect "wrong user reinstalled" situations.
+
+    Raises HTTPException 502 with ``detail='github_user_lookup_failed'`` on
+    any network error, non-200 status, or malformed response body.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            r = await c.get(
+                f"{settings.GITHUB_API_BASE_URL.rstrip('/')}/user",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_user_lookup_failed reason=transport err=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_user_lookup_failed",
+        )
+
+    if r.status_code != 200:
+        logger.warning(
+            "github_user_lookup_failed reason=non_200 status=%s",
+            r.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_user_lookup_failed",
+        )
+
+    try:
+        body = r.json()
+    except ValueError:
+        logger.warning("github_user_lookup_failed reason=malformed_response")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_user_lookup_failed",
+        )
+
+    github_user_id = body.get("id")
+    if not isinstance(github_user_id, int):
+        logger.warning("github_user_lookup_failed reason=missing_or_invalid_id")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_user_lookup_failed",
+        )
+
+    return github_user_id
+
+
+# ---------------------------------------------------------------------------
 # HTTP routes
 # ---------------------------------------------------------------------------
 
@@ -614,13 +680,18 @@ async def _process_install_callback(
     session: Any,
     installation_id: int,
     state: str,
+    oauth_tuple: ResolvedOAuthInstall | None = None,
 ) -> GitHubAppInstallationPublic:
     """Shared core for both GET and POST install-callback handlers.
 
     Validates the state JWT, confirms the team exists, looks up the
-    installation via the orchestrator, and UPSERTs the row. Returns the
-    persisted installation record. Raises HTTPException on any validation or
-    upstream error — callers decide how to surface that to the browser.
+    installation via the orchestrator, and UPSERTs the row. When
+    ``oauth_tuple`` is provided (GET / OAuth flow), also fetches the GitHub
+    user id and upserts a ``github_user_oauth_tokens`` row inside the same
+    transaction — both writes commit together so a partial failure is
+    impossible. Returns the persisted installation record. Raises
+    HTTPException on any validation or upstream error — callers decide how to
+    surface that to the browser.
     """
     payload = _decode_install_state(state)
 
@@ -686,6 +757,80 @@ async def _process_install_callback(
         },
     )
     row = result.one()
+
+    # Token persistence — only when the OAuth flow provided a full token set.
+    if oauth_tuple is not None:
+        # Resolve user_id from the validated state payload (T01 guarantee).
+        raw_user_id = payload.get("user_id")
+        try:
+            state_user_id = uuid.UUID(str(raw_user_id))
+        except (TypeError, ValueError):
+            logger.warning(
+                "github_install_callback_state_invalid reason=malformed_user_id"
+                " presented_jti=%s",
+                presented_jti,
+            )
+            raise HTTPException(
+                status_code=400, detail="install_state_user_unknown"
+            )
+
+        # Fetch the GitHub numeric user id — raises 502 on any failure.
+        github_user_id = await _fetch_github_user_id(oauth_tuple.access_token)
+
+        now = datetime.now(timezone.utc)
+        access_expires_at = now + timedelta(seconds=oauth_tuple.expires_in)
+        refresh_expires_at = now + timedelta(
+            seconds=oauth_tuple.refresh_token_expires_in
+        )
+
+        access_enc = encrypt_user_token(oauth_tuple.access_token)
+        refresh_enc = encrypt_user_token(oauth_tuple.refresh_token)
+
+        token_upsert = text(
+            """
+            INSERT INTO github_user_oauth_tokens
+                (user_id, installation_id, github_user_id,
+                 access_token_encrypted, refresh_token_encrypted,
+                 access_token_expires_at, refresh_token_expires_at,
+                 scope, created_at, updated_at)
+            VALUES
+                (:user_id, :installation_id, :github_user_id,
+                 :access_token_encrypted, :refresh_token_encrypted,
+                 :access_token_expires_at, :refresh_token_expires_at,
+                 :scope, NOW(), NOW())
+            ON CONFLICT (user_id) DO UPDATE
+            SET installation_id = EXCLUDED.installation_id,
+                github_user_id = EXCLUDED.github_user_id,
+                access_token_encrypted = EXCLUDED.access_token_encrypted,
+                refresh_token_encrypted = EXCLUDED.refresh_token_encrypted,
+                access_token_expires_at = EXCLUDED.access_token_expires_at,
+                refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
+                scope = EXCLUDED.scope,
+                updated_at = NOW()
+            """
+        )
+        session.execute(
+            token_upsert,
+            {
+                "user_id": state_user_id,
+                "installation_id": installation_id,
+                "github_user_id": github_user_id,
+                "access_token_encrypted": access_enc,
+                "refresh_token_encrypted": refresh_enc,
+                "access_token_expires_at": access_expires_at,
+                "refresh_token_expires_at": refresh_expires_at,
+                "scope": oauth_tuple.scope,
+            },
+        )
+        logger.info(
+            "github_user_token_persisted user_id=%s installation_id=%s"
+            " github_user_id=%s",
+            state_user_id,
+            installation_id,
+            github_user_id,
+        )
+
+    # Single commit — covers both the installation row and any token row.
     session.commit()
 
     logger.info(
@@ -747,6 +892,7 @@ async def github_install_callback_get(
     # but NOT installation_id. Exchange the code for a user token and resolve
     # the installation_id via /user/installations.
     resolved_installation_id = installation_id
+    resolved_oauth: ResolvedOAuthInstall | None = None
     if resolved_installation_id is None and code:
         try:
             resolved_oauth = await _resolve_installation_id_from_oauth_code(
@@ -774,7 +920,9 @@ async def github_install_callback_get(
         )
 
     try:
-        await _process_install_callback(session, resolved_installation_id, state)
+        await _process_install_callback(
+            session, resolved_installation_id, state, oauth_tuple=resolved_oauth
+        )
     except HTTPException as exc:
         detail = exc.detail
         if isinstance(detail, dict):

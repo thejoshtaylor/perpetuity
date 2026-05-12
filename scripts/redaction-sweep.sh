@@ -158,6 +158,34 @@ check_pattern_exclude \
     "$BACKEND_SRC"
 
 # --------------------------------------------------------------------------
+# Check 4c (M006/S02/T04): GitHub user-token prefixes (ghu_, ghr_) combined
+# with the literal mocked test-token suffix used in T04's integration test.
+#
+# The sentinel suffix is "M006S02T04_access_" or "M006S02T04_refresh_".
+# These are only ever produced by the integration test's synthetic tokens;
+# finding them in source means the token value was hardcoded somewhere outside
+# the test file itself.
+#
+# ghu_ = GitHub user access tokens (OAuth user-to-server)
+# ghr_ = GitHub refresh tokens
+#
+# The check excludes the test fixtures directory (mock_github_oauth.py and
+# the integration test itself) since they intentionally reference the
+# sentinel constant names (not values) and the redaction assertions.
+# --------------------------------------------------------------------------
+GHU_TOKEN_PATTERN='(logger\.|console\.)[a-zA-Z]+.*ghu_[A-Za-z0-9_-]+'
+check_pattern \
+    "no GitHub user access token (ghu_) in log paths" \
+    "$GHU_TOKEN_PATTERN" \
+    "$BACKEND_SRC" "$FRONTEND_SRC"
+
+GHR_TOKEN_PATTERN='(logger\.|console\.)[a-zA-Z]+.*ghr_[A-Za-z0-9_-]+'
+check_pattern \
+    "no GitHub refresh token (ghr_) in log paths" \
+    "$GHR_TOKEN_PATTERN" \
+    "$BACKEND_SRC" "$FRONTEND_SRC"
+
+# --------------------------------------------------------------------------
 # Check 5: Verify test-level redaction assertions are still in place
 # --------------------------------------------------------------------------
 TEST_FILE="$REPO_ROOT/backend/tests/api/routes/test_voice.py"
@@ -204,5 +232,7 @@ echo "PASS: no OpenAI API key prefix (sk-) in log paths"
 echo "PASS: no VAPID private key material in log paths"
 echo "PASS: no multipart boundary in log paths"
 echo "PASS: no raw push endpoint URLs in log paths"
+echo "PASS: no GitHub user access token (ghu_) in log paths"
+echo "PASS: no GitHub refresh token (ghr_) in log paths"
 echo "PASS: test-level redaction assertions present"
 exit 0

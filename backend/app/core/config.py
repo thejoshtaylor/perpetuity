@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     # the install flow can be exercised without a real GitHub account.
     GITHUB_APP_INSTALL_URL_BASE: str = "https://github.com"
 
+    # Base URLs for GitHub OAuth and API calls. Both default to the real GitHub
+    # endpoints; the M006/S02 e2e harness (T04) overrides both to point at an
+    # in-network mock-github-oauth sidecar running plain HTTP so the token
+    # persistence path can be exercised without a real GitHub OAuth app.
+    GITHUB_OAUTH_BASE_URL: str = "https://github.com"
+    GITHUB_API_BASE_URL: str = "https://api.github.com"
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (

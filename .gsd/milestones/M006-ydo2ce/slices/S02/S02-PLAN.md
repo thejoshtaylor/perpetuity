@@ -31,12 +31,12 @@ Upstream surfaces consumed: S01's GitHubUserOAuthToken SQLModel + encrypt_user_t
   - Files: `backend/app/api/routes/github.py`, `backend/tests/api/routes/test_github_oauth_resolve.py`
   - Verify: cd backend && uv run pytest tests/api/routes/test_github_oauth_resolve.py -v
 
-- [ ] **T03: `_fetch_github_user_id` helper + token persistence in `_process_install_callback`** `est:2h`
+- [x] **T03: `_fetch_github_user_id` helper + token persistence in `_process_install_callback`** `est:2h`
   This is the slice's main effect — installs cause token rows. Both the GitHub GET /user call and the DB upsert live here so the transactional guarantee in must-have (6) holds. Add async _fetch_github_user_id(access_token: str) -> int colocated with _resolve_installation_id_from_oauth_code. Change _process_install_callback signature to (session, installation_id, state, oauth_tuple: ResolvedOAuthInstall | None = None). After existing github_app_installations upsert, if oauth_tuple is not None: call _fetch_github_user_id, build upsert payload for github_user_oauth_tokens, encrypt tokens via encrypt_user_token, compute *_expires_at, execute INSERT ... ON CONFLICT (user_id) DO UPDATE on same session. Single session.commit() at end commits BOTH writes.
   - Files: `backend/app/api/routes/github.py`
   - Verify: cd backend && uv run pytest tests/api/routes/test_github_install_callback.py -v && uv run pytest tests/api/routes/ -v -k oauth
 
-- [ ] **T04: Integration test `test_github_oauth_token_persistence.py` + redaction-sweep extension** `est:1.5h`
+- [x] **T04: Integration test `test_github_oauth_token_persistence.py` + redaction-sweep extension** `est:1.5h`
   Proves the cross-cutting invariant: GET install callback through respx-mocked GitHub ends with a decryptable token row, no plaintext anywhere in logs. Model on backend/tests/integration/test_m005_s01_team_secrets_e2e.py for stack-bringup discipline and on existing M005-sqm8et OAuth tests for respx mock shape. Test covers must-have (8) cases (a)-(g). Include MEM162 alembic skip-guard probing for s17_github_user_oauth_tokens revision in backend:latest. Extend scripts/redaction-sweep.sh to grep for ghu_ and ghr_ token prefixes IN COMBINATION with literal mocked test-token suffix.
   - Files: `backend/tests/integration/test_github_oauth_token_persistence.py`, `scripts/redaction-sweep.sh`
   - Verify: cd backend && uv run pytest tests/integration/test_github_oauth_token_persistence.py -v && bash scripts/redaction-sweep.sh
