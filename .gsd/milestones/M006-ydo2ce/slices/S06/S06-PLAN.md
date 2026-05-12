@@ -31,7 +31,7 @@ Upstream surfaces consumed: S04's 409 / 502 / 503 response shapes; the existing 
   - Files: `frontend/src/components/Teams/Projects/CreateGitHubRepoDialog.tsx`
   - Verify: cd frontend && npx tsc --noEmit
 
-- [ ] **T03: Component tests for all four error branches + 409-no-reason case** `est:1.5h`
+- [x] **T03: Component tests for all four error branches + 409-no-reason case** `est:1.5h`
   Must-have (8)'s five test cases; each maps to one user-visible state that S06 must guarantee. The window.open spy and fetch mock combination is the linchpin proving the install URL actually flows through. Use existing component test harness (Vitest + React Testing Library OR Playwright component testing). Mock fetch per test case to return documented response shape. For window.open test, use vi.spyOn(window, 'open').mockImplementation. For install-url fetch in test (b), mock a second fetch response keyed on URL pattern. Each test case from must-have (8) gets its own it(...) block.
   - Files: `frontend/tests/components/CreateGitHubRepoDialog.test.tsx`
   - Verify: cd frontend && npm test -- CreateGitHubRepoDialog
