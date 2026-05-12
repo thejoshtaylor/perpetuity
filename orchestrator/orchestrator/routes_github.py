@@ -227,13 +227,13 @@ async def list_installation_repositories_route(
     return result
 
 
-@router.post("/{installation_id}/create-repository")
+@router.post("/{installation_id}/create-repository", status_code=status.HTTP_201_CREATED)
 async def create_repository_route(
     installation_id: int,
     request: Request,
 ) -> dict[str, Any]:
     """Create a new repository via a GitHub App installation.
-    
+
     Request body: {repo_name, description?, private}
     Returns: {name, full_name, ...} on success.
     """
