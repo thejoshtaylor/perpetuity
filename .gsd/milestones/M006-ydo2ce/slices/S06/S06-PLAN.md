@@ -36,7 +36,7 @@ Upstream surfaces consumed: S04's 409 / 502 / 503 response shapes; the existing 
   - Files: `frontend/tests/components/CreateGitHubRepoDialog.test.tsx`
   - Verify: cd frontend && npm test -- CreateGitHubRepoDialog
 
-- [ ] **T04: Write runbook `docs/runbooks/m006-github-oauth-setup.md` + cross-reference from m004** `est:45m`
+- [x] **T04: Write runbook `docs/runbooks/m006-github-oauth-setup.md` + cross-reference from m004** `est:45m`
   The milestone is not deployable without an operator changing the GitHub App config; the runbook is how that knowledge persists. Write the runbook with sections Why / What to change / How to verify / Rollback / When this changes per must-have (9). Reference specific GitHub App settings page navigation. Include verification SQL query verbatim. Cross-reference m004 runbook. Add one-liner to m004.
   - Files: `docs/runbooks/m006-github-oauth-setup.md`, `docs/runbooks/m004-secrets-rotation.md`
   - Verify: test -f docs/runbooks/m006-github-oauth-setup.md && [ $(wc -l < docs/runbooks/m006-github-oauth-setup.md) -ge 30 ] && grep -q m006-github-oauth-setup docs/runbooks/m004-secrets-rotation.md

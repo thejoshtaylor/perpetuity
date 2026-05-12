@@ -220,6 +220,13 @@ signature_valid=false`). This is expected. Audit rows in `webhook_rejections`
 are the durable evidence the rotation was in flight; clear or annotate them
 if your runbook policy requires.
 
+## Related Runbooks
+
+- [M006 GitHub App OAuth Setup](m006-github-oauth-setup.md) — one-time admin
+  task to enable OAuth, add `repo` scope, and seed `github_app_client_id`,
+  `github_app_client_secret`, and `github_app_slug` so personal-install repo
+  creation works. Also covers rotating the OAuth client secret.
+
 ## Inspecting state at rotation time
 
 These SQL queries give the operator visibility into both procedures while
