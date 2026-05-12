@@ -31,7 +31,7 @@ Upstream surfaces consumed: M004/S01 encryption helpers; existing user table for
   - Files: `backend/app/models.py`
   - Verify: cd backend && uv run python -c "from app.models import GitHubUserOAuthToken, GitHubUserOAuthTokenStatus; print(GitHubUserOAuthToken.__tablename__); print(set(GitHubUserOAuthTokenStatus.model_fields.keys()) & {'access_token_encrypted','refresh_token_encrypted'})"
 
-- [ ] **T03: `app/core/github_user_tokens.py` crypto helpers + sentinel exception + unit tests** `est:1h`
+- [x] **T03: `app/core/github_user_tokens.py` crypto helpers + sentinel exception + unit tests** `est:1h`
   Lock the encrypt/decrypt boundary that S02 (persist) and S03 (refresh) will both call through; the sentinel exception lets the ERROR log in S03 distinguish a user-token decrypt failure from a system-settings decrypt failure. Create module with class GitHubUserTokenDecryptError(Exception) (constructor takes optional user_id: uuid.UUID | None). Export encrypt_user_token(plain: str) -> bytes that calls encrypt_setting. Export decrypt_user_token(cipher: bytes) -> str that calls decrypt_setting and catches SystemSettingDecryptError to re-raise as GitHubUserTokenDecryptError. Unit test covers the 5 cases from must-have (6) plus test_model_registered.
   - Files: `backend/app/core/github_user_tokens.py`, `backend/tests/unit/test_github_user_tokens_crypto.py`
   - Verify: cd backend && uv run pytest tests/unit/test_github_user_tokens_crypto.py -v
