@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { CreateGitHubRepoDialog } from "./CreateGitHubRepoDialog"
 
 const formSchema = z.object({
   name: z
@@ -105,6 +106,7 @@ const CreateProjectDialog = ({
   const [isOpen, setIsOpen] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [showCreateRepoDialog, setShowCreateRepoDialog] = useState(false)
   const queryClient = useQueryClient()
 
   // Auto-select the last used installation
@@ -129,7 +131,10 @@ const CreateProjectDialog = ({
   // Set the default installation when it becomes available
   useEffect(() => {
     if (lastUsedInstallation && !form.getValues("installation_id")) {
-      form.setValue("installation_id", lastUsedInstallation.installation_id.toString())
+      form.setValue(
+        "installation_id",
+        lastUsedInstallation.installation_id.toString(),
+      )
     }
   }, [lastUsedInstallation, form])
 
@@ -149,7 +154,7 @@ const CreateProjectDialog = ({
       if (!selectedInstallationId) return { data: [] }
       const res = await fetch(
         `/api/v1/teams/${teamId}/github/installations/${selectedInstallationId}/repositories`,
-        { method: "GET" }
+        { method: "GET" },
       )
       if (!res.ok) throw new Error("Failed to fetch repositories")
       return res.json()
@@ -157,7 +162,8 @@ const CreateProjectDialog = ({
     enabled: !!selectedInstallationId && isOpen,
   })
 
-  const repositories = (repositoriesResponse as { data?: Repository[] } | undefined)?.data || []
+  const repositories =
+    (repositoriesResponse as { data?: Repository[] } | undefined)?.data || []
   const filteredRepositories = repositories.filter((repo) =>
     repo.full_name.toLowerCase().includes(searchQuery.toLowerCase()),
   )
@@ -208,189 +214,234 @@ const CreateProjectDialog = ({
     })
   }
 
-  return (
-    <Dialog
-      open={isOpen}
-      onOpenChange={(next) => {
-        if (mutation.isPending) return
-        setIsOpen(next)
-        if (!next) {
-          form.reset()
-          setSubmitError(null)
-          setSearchQuery("")
-        }
-      }}
-    >
-      <DialogTrigger asChild disabled={disabled}>
-        {trigger ?? (
-          <Button
-            type="button"
-            data-testid="create-project-button"
-            disabled={disabled}
-            title={disabled ? disabledReason : undefined}
-          >
-            New Project
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create project</DialogTitle>
-          <DialogDescription>
-            Link a GitHub repository to this team. Pick an installation that has
-            access to the repo.
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <div className="grid gap-4 py-4">
-              <FormField
-                control={form.control}
-                name="installation_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      GitHub installation{" "}
-                      <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger
-                          className="w-full"
-                          data-testid="create-project-installation-select"
-                        >
-                          <SelectValue placeholder="Choose an installation" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {installations.map((inst) => (
-                            <SelectItem
-                              key={inst.installation_id}
-                              value={String(inst.installation_id)}
-                              data-testid={`create-project-installation-option-${inst.installation_id}`}
-                            >
-                              {inst.account_login} ({inst.account_type})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+  const currentInstallation = useMemo(
+    () =>
+      installations.find(
+        (inst) => inst.installation_id.toString() === selectedInstallationId,
+      ),
+    [installations, selectedInstallationId],
+  )
 
-              <FormField
-                control={form.control}
-                name="github_repo_full_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Repository <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <div className="flex flex-col gap-2">
-                      <Input
-                        placeholder="Search repositories..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        data-testid="create-project-repo-search"
-                      />
+  return (
+    <>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(next) => {
+          if (mutation.isPending) return
+          setIsOpen(next)
+          if (!next) {
+            form.reset()
+            setSubmitError(null)
+            setSearchQuery("")
+          }
+        }}
+      >
+        <DialogTrigger asChild disabled={disabled}>
+          {trigger ?? (
+            <Button
+              type="button"
+              data-testid="create-project-button"
+              disabled={disabled}
+              title={disabled ? disabledReason : undefined}
+            >
+              New Project
+            </Button>
+          )}
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create project</DialogTitle>
+            <DialogDescription>
+              Link a GitHub repository to this team. Pick an installation that
+              has access to the repo.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)}>
+              <div className="grid gap-4 py-4">
+                <FormField
+                  control={form.control}
+                  name="installation_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        GitHub installation{" "}
+                        <span className="text-destructive">*</span>
+                      </FormLabel>
                       <FormControl>
-                        <Select value={field.value} onValueChange={field.onChange}>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
                           <SelectTrigger
                             className="w-full"
-                            data-testid="create-project-repo-select"
+                            data-testid="create-project-installation-select"
                           >
-                            <SelectValue placeholder="Choose a repository" />
+                            <SelectValue placeholder="Choose an installation" />
                           </SelectTrigger>
                           <SelectContent>
-                            {reposLoading && (
-                              <SelectItem value="loading" disabled>
-                                Loading repositories...
+                            {installations.map((inst) => (
+                              <SelectItem
+                                key={inst.installation_id}
+                                value={String(inst.installation_id)}
+                                data-testid={`create-project-installation-option-${inst.installation_id}`}
+                              >
+                                {inst.account_login} ({inst.account_type})
                               </SelectItem>
-                            )}
-                            {!reposLoading && filteredRepositories.length === 0 && (
-                              <SelectItem value="empty" disabled>
-                                {repositories.length === 0
-                                  ? "No repositories found"
-                                  : "No matching repositories"}
-                              </SelectItem>
-                            )}
-                            {!reposLoading &&
-                              filteredRepositories.map((repo) => (
-                                <SelectItem
-                                  key={repo.full_name}
-                                  value={repo.full_name}
-                                  data-testid={`create-project-repo-option-${repo.full_name}`}
-                                >
-                                  {repo.full_name}
-                                </SelectItem>
-                              ))}
+                            ))}
                           </SelectContent>
                         </Select>
                       </FormControl>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="github_repo_full_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Repository <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <div className="flex flex-col gap-2">
+                        <Input
+                          placeholder="Search repositories..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          data-testid="create-project-repo-search"
+                        />
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          >
+                            <SelectTrigger
+                              className="w-full"
+                              data-testid="create-project-repo-select"
+                            >
+                              <SelectValue placeholder="Choose a repository" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {reposLoading && (
+                                <SelectItem value="loading" disabled>
+                                  Loading repositories...
+                                </SelectItem>
+                              )}
+                              {!reposLoading &&
+                                filteredRepositories.length === 0 && (
+                                  <SelectItem value="empty" disabled>
+                                    {repositories.length === 0
+                                      ? "No repositories found"
+                                      : "No matching repositories"}
+                                  </SelectItem>
+                                )}
+                              {!reposLoading &&
+                                filteredRepositories.map((repo) => (
+                                  <SelectItem
+                                    key={repo.full_name}
+                                    value={repo.full_name}
+                                    data-testid={`create-project-repo-option-${repo.full_name}`}
+                                  >
+                                    {repo.full_name}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowCreateRepoDialog(true)}
+                          data-testid="create-project-new-repo-button"
+                          disabled={!selectedInstallationId || reposLoading}
+                        >
+                          + Create new repository
+                        </Button>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Name <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          data-testid="create-project-name-input"
+                          placeholder="api-server"
+                          type="text"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {submitError && (
+                  <p
+                    className="text-destructive text-sm"
+                    data-testid="create-project-error"
+                    role="alert"
+                  >
+                    {submitError}
+                  </p>
                 )}
-              />
+              </div>
 
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Name <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        data-testid="create-project-name-input"
-                        placeholder="api-server"
-                        type="text"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {submitError && (
-                <p
-                  className="text-destructive text-sm"
-                  data-testid="create-project-error"
-                  role="alert"
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={mutation.isPending}
+                  >
+                    Cancel
+                  </Button>
+                </DialogClose>
+                <LoadingButton
+                  type="submit"
+                  loading={mutation.isPending}
+                  data-testid="create-project-submit"
                 >
-                  {submitError}
-                </p>
-              )}
-            </div>
-
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={mutation.isPending}
-                >
-                  Cancel
-                </Button>
-              </DialogClose>
-              <LoadingButton
-                type="submit"
-                loading={mutation.isPending}
-                data-testid="create-project-submit"
-              >
-                Create
-              </LoadingButton>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
+                  Create
+                </LoadingButton>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+      <CreateGitHubRepoDialog
+        open={showCreateRepoDialog}
+        onOpenChange={setShowCreateRepoDialog}
+        installationId={selectedInstallationId}
+        teamId={teamId}
+        accountLogin={currentInstallation?.account_login || ""}
+        onSuccess={(repoFullName) => {
+          form.setValue("github_repo_full_name", repoFullName)
+          // Refetch repositories to include the new one
+          queryClient.invalidateQueries({
+            queryKey: [
+              "team",
+              teamId,
+              "github",
+              "installations",
+              selectedInstallationId,
+              "repositories",
+            ],
+          })
+        }}
+      />
+    </>
   )
 }
 

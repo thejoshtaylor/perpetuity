@@ -854,6 +854,86 @@ async def _orch_list_repositories(installation_id: int) -> list[dict[str, Any]]:
     return body
 
 
+async def _orch_create_repository(
+    installation_id: int, repo_name: str, description: str | None, private: bool
+) -> dict[str, Any]:
+    """Ask the orchestrator to create a new repository via a GitHub installation.
+
+    The orchestrator owns the GitHub App private key and is the only side
+    that can authenticate against GitHub's create repository endpoint.
+
+    Returns {full_name, name, ...} on success.
+    Raises HTTPException 502 on any GitHub or transport error.
+    """
+    base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
+    url = f"{base}/v1/installations/{installation_id}/create-repository"
+    headers = {"X-Orchestrator-Key": settings.ORCHESTRATOR_API_KEY}
+
+    payload = {
+        "repo_name": repo_name,
+        "private": private,
+    }
+    if description:
+        payload["description"] = description
+
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            r = await c.post(url, headers=headers, json=payload)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=timeout",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=transport err=%s",
+            installation_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+
+    if r.status_code != 201:
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=%s",
+            installation_id,
+            r.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+
+    try:
+        body = r.json()
+    except ValueError:
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=malformed_response",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+
+    if not isinstance(body, dict) or not isinstance(body.get("full_name"), str):
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=malformed_response",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+    return body
+
+
 @router.get("/teams/{team_id}/github/installations/{installation_id}/repositories")
 async def list_installation_repositories(
     *,
@@ -881,3 +961,74 @@ async def list_installation_repositories(
 
     repos = await _orch_list_repositories(installation_id)
     return {"data": repos, "count": len(repos)}
+
+
+@router.post("/teams/{team_id}/github/installations/{installation_id}/create-repository")
+async def create_github_repository(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    team_id: uuid.UUID,
+    installation_id: int,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Create a new GitHub repository via a GitHub installation.
+
+    Team-admin gated. Accepts {repo_name, description?, private} and returns
+    the created repository object {full_name, name, ...}.
+
+    The orchestrator creates the repository and returns the new repo metadata
+    so it can be immediately selected in the project creation flow.
+    """
+    assert_caller_is_team_admin(session, team_id, current_user.id)
+
+    # Verify the installation belongs to this team
+    installation = session.exec(
+        select(GitHubAppInstallation).where(
+            GitHubAppInstallation.team_id == team_id,
+            GitHubAppInstallation.installation_id == installation_id,
+        )
+    ).first()
+    if installation is None:
+        raise HTTPException(status_code=404, detail="installation_not_found")
+
+    # Validate request body
+    repo_name = body.get("repo_name")
+    description = body.get("description")
+    private = body.get("private", True)
+
+    if not isinstance(repo_name, str) or not repo_name.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="repo_name_required",
+        )
+
+    if description is not None and not isinstance(description, str):
+        raise HTTPException(
+            status_code=422,
+            detail="description_must_be_string",
+        )
+
+    if not isinstance(private, bool):
+        raise HTTPException(
+            status_code=422,
+            detail="private_must_be_boolean",
+        )
+
+    try:
+        repo = await _orch_create_repository(
+            installation_id,
+            repo_name.strip(),
+            description.strip() if description else None,
+            private,
+        )
+    except HTTPException:
+        raise
+
+    logger.info(
+        "github_repository_created installation_id=%s repo_name=%s actor_id=%s",
+        installation_id,
+        repo.get("name"),
+        current_user.id,
+    )
+    return repo
