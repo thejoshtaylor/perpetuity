@@ -21,7 +21,7 @@
 - [x] **S03: S03** `risk:medium` `depends:[]`
   > After this: Three unit tests against a respx-mocked token endpoint: (1) row exists, access token unexpired → returns the stored plaintext directly (no GitHub call). (2) row exists, access token expired but refresh token valid → POSTs to github.com/login/oauth/access_token with grant_type=refresh_token; helper updates the row and returns the new plaintext. (3) row exists, refresh token expired → GitHub returns 400 bad_refresh_token; the helper deletes the row and raises UserTokenUnavailable. (4) row does not exist → raises UserTokenUnavailable without making any HTTP call.
 
-- [ ] **S04: S04** `risk:low` `depends:[]`
+- [x] **S04: S04** `risk:low` `depends:[]`
   > After this: Three backend-route integration tests against the test client: (1) personal install + token row present for current_user.id → orchestrator receives a httpx call with X-GitHub-User-Token: <plaintext> header; backend returns 201. (2) personal install + no token row → backend returns 409 {"detail": "github_user_token_required", "installation_id": <int>} without calling the orchestrator. (3) org install → backend calls the orchestrator without the new header (M005-sqm8et regression-clean).
 
 - [ ] **S05: Orchestrator prefers user token for personal installs** `risk:high` `depends:[S04]`
