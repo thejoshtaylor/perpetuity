@@ -21,12 +21,12 @@ Upstream surfaces consumed: S01's GitHubUserOAuthToken SQLModel + encrypt_user_t
 
 ## Tasks
 
-- [ ] **T01: Extend install-state JWT to carry `user_id` + update mint/decode + install-url route** `est:1h`
+- [x] **T01: Extend install-state JWT to carry `user_id` + update mint/decode + install-url route** `est:1h`
   S01 keys the token table on user_id; the install callback must know which Perpetuity user is doing the install. The only durable carrier across the GitHub redirect is the signed state JWT. Change _mint_install_state(team_id) to _mint_install_state(team_id, user_id); add user_id claim to payload. Update install-url route at :502 to pass current_user.id. In _decode_install_state, after the signature-verified jwt.decode block, validate user_id claim is present and parseable as a UUID; on missing or unparseable, raise HTTPException(400, detail=install_state_user_unknown). Add unit tests for round-trip, missing-user_id rejection, and malformed-user_id rejection.
   - Files: `backend/app/api/routes/github.py`, `backend/tests/api/routes/test_github_state_jwt.py`
   - Verify: cd backend && uv run pytest tests/api/routes/test_github_state_jwt.py -v
 
-- [ ] **T02: Refactor `_resolve_installation_id_from_oauth_code` to return `ResolvedOAuthInstall`** `est:1h`
+- [x] **T02: Refactor `_resolve_installation_id_from_oauth_code` to return `ResolvedOAuthInstall`** `est:1h`
   The function already POSTs to the GitHub token endpoint and receives the full payload but throws away every field except the access token. S02 needs all four token-payload fields downstream. Define @dataclass ResolvedOAuthInstall (installation_id, access_token, refresh_token, expires_in, refresh_token_expires_in, scope). Read all five token-payload fields from token_body; if any is missing or wrong-type, raise HTTPException(502, detail=github_oauth_exchange_failed) with new log reason token_payload_incomplete field=<name>. Return the dataclass.
   - Files: `backend/app/api/routes/github.py`, `backend/tests/api/routes/test_github_oauth_resolve.py`
   - Verify: cd backend && uv run pytest tests/api/routes/test_github_oauth_resolve.py -v

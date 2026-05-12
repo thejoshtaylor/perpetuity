@@ -242,6 +242,7 @@ def _decode_state(token: str) -> dict[str, Any]:
 def _mint_state(
     team_id: str | uuid.UUID,
     *,
+    user_id: str | uuid.UUID | None = None,
     secret: str | None = None,
     audience: str = "github-install",
     issuer: str = "perpetuity-install",
@@ -249,12 +250,19 @@ def _mint_state(
     iat_delta_seconds: int = 0,
     extra: dict[str, Any] | None = None,
 ) -> str:
-    """Mint a state JWT for negative-path tests."""
+    """Mint a state JWT for negative-path tests.
+
+    `user_id` defaults to a fresh UUID (matching the updated contract that
+    requires a valid user_id claim). Pass an explicit value to test specific
+    user_id shapes, or omit the key entirely via `extra={"user_id": None}`.
+    """
     now = datetime.now(timezone.utc)
     iat = now + timedelta(seconds=iat_delta_seconds)
     exp = now + timedelta(seconds=exp_delta_seconds)
+    resolved_user_id = user_id if user_id is not None else uuid.uuid4()
     payload: dict[str, Any] = {
         "team_id": str(team_id),
+        "user_id": str(resolved_user_id),
         "jti": "deadbeefdeadbeef" + uuid.uuid4().hex[:8],
         "iat": int(iat.timestamp()),
         "exp": int(exp.timestamp()),

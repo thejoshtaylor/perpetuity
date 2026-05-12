@@ -15,7 +15,7 @@
 - [x] **S01: S01** `risk:medium` `depends:[]`
   > After this: `alembic upgrade head` against a fresh DB creates the table at revision `s17_github_user_oauth_tokens`. A unit test round-trips a plaintext access token through `GitHubUserOAuthToken.set_access_token()` / `get_access_token()` and asserts (a) the row's `access_token_encrypted` BYTEA does not contain the plaintext, and (b) decryption returns the exact input. The migration test exercises upgrade-from-s16 + downgrade round-trip without the autouse-`db`-session DDL hang.
 
-- [ ] **S02: Persist user token at install time + `GET /user` for github_user_id** `risk:medium` `depends:[S01]`
+- [ ] **S02: S02** `risk:medium` `depends:[]`
   > After this: A respx-mocked GitHub returns a token-exchange payload and `{id: 42, login: "alice"}` from `GET api.github.com/user`. The OAuth callback completes; a SELECT against `github_user_oauth_tokens` shows one row with user_id = current_user.id, github_user_id = 42, scopes = "repo,read:user", both ciphertext columns non-NULL and not containing the raw tokens, and access_token_expires_at ≈ now() + 28800s / refresh_token_expires_at ≈ now() + 15897600s. Re-running the callback overwrites the same row.
 
 - [ ] **S03: `get_user_access_token` refresh-on-read helper** `risk:medium` `depends:[S01]`

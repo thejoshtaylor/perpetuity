@@ -52,6 +52,7 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -110,20 +111,27 @@ def _jti_prefix(jti: str | None) -> str:
     return jti[:8]
 
 
-def _mint_install_state(team_id: uuid.UUID) -> tuple[str, datetime, str]:
-    """Mint a signed install-state JWT bound to `team_id`.
+def _mint_install_state(
+    team_id: uuid.UUID, user_id: uuid.UUID
+) -> tuple[str, datetime, str]:
+    """Mint a signed install-state JWT bound to `team_id` and `user_id`.
 
     Returns (token, exp_dt, jti). The jti is `secrets.token_urlsafe(16)` —
     enough entropy to make state tokens single-use in practice without
     introducing a server-side replay store (the 10-min expiry is the
     primary defense; the jti exists so logs can correlate issuance to the
     callback that consumes it).
+
+    `user_id` is embedded so the install-callback can attribute the GitHub
+    installation to the Perpetuity user who initiated it, without relying
+    on session state across the GitHub redirect.
     """
     now = datetime.now(timezone.utc)
     exp = now + timedelta(seconds=_STATE_TTL_SECONDS)
     jti = secrets.token_urlsafe(16)
     payload = {
         "team_id": str(team_id),
+        "user_id": str(user_id),
         "jti": jti,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
@@ -188,6 +196,23 @@ def _decode_install_state(state_token: str) -> dict[str, Any]:
             "github_install_callback_state_invalid reason=bad_signature presented_jti=NA"
         )
         raise HTTPException(status_code=400, detail="install_state_invalid")
+
+    # Validate user_id claim: must be present and parseable as a UUID.
+    raw_user_id = payload.get("user_id")
+    if not raw_user_id:
+        logger.warning(
+            "github_install_callback_state_invalid reason=missing_user_id presented_jti=%s",
+            _jti_prefix(payload.get("jti")),
+        )
+        raise HTTPException(status_code=400, detail="install_state_user_unknown")
+    try:
+        uuid.UUID(str(raw_user_id))
+    except (ValueError, AttributeError):
+        logger.warning(
+            "github_install_callback_state_invalid reason=malformed_user_id presented_jti=%s",
+            _jti_prefix(payload.get("jti")),
+        )
+        raise HTTPException(status_code=400, detail="install_state_user_unknown")
 
     return payload
 
@@ -287,9 +312,25 @@ async def _orch_lookup_installation(installation_id: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ResolvedOAuthInstall:
+    """All fields returned from the GitHub OAuth token exchange, plus the resolved installation_id.
+
+    Fields map 1-to-1 to the token endpoint response.  ``scope`` may be an
+    empty string when the App requests no additional scopes.
+    """
+
+    installation_id: int
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    refresh_token_expires_in: int
+    scope: str
+
+
 async def _resolve_installation_id_from_oauth_code(
     session: Any, code: str
-) -> int:
+) -> ResolvedOAuthInstall:
     """Exchange a GitHub OAuth `code` for a user token, then resolve the installation_id.
 
     Called when GitHub's OAuth Callback URL flow sends `code` + `state`
@@ -297,8 +338,10 @@ async def _resolve_installation_id_from_oauth_code(
       1. Read client_id (non-sensitive JSONB) and client_secret (Fernet-encrypted)
          from system_settings.
       2. POST to github.com/login/oauth/access_token to exchange the code.
-      3. GET /user/installations with the resulting token to find the installation
-         that was just granted. Returns the most-recently-granted installation_id.
+      3. Validate all required token fields are present and correctly typed.
+      4. GET /user/installations with the resulting token to find the installation
+         that was just granted. Returns ResolvedOAuthInstall with all token fields
+         plus the most-recently-granted installation_id.
 
     Raises HTTPException 502 on any GitHub API error, 503 if credentials are
     missing or unreadable.
@@ -384,17 +427,59 @@ async def _resolve_installation_id_from_oauth_code(
             detail="github_oauth_exchange_failed",
         )
 
+    # Validate all required token-payload fields
+    def _require_str(field: str) -> str:
+        val = token_body.get(field)
+        if not val or not isinstance(val, str):
+            logger.warning(
+                "github_oauth_exchange_failed reason=token_payload_incomplete field=%s",
+                field,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="github_oauth_exchange_failed",
+            )
+        return val
+
+    def _require_int(field: str) -> int:
+        val = token_body.get(field)
+        if val is None or not isinstance(val, int):
+            logger.warning(
+                "github_oauth_exchange_failed reason=token_payload_incomplete field=%s",
+                field,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="github_oauth_exchange_failed",
+            )
+        return val
+
     access_token = token_body.get("access_token")
     if not access_token or not isinstance(access_token, str):
         error = token_body.get("error", "unknown")
         logger.warning(
-            "github_oauth_exchange_failed reason=no_access_token error=%s",
+            "github_oauth_exchange_failed reason=token_payload_incomplete field=access_token error=%s",
             error,
         )
         raise HTTPException(
             status_code=502,
             detail="github_oauth_exchange_failed",
         )
+
+    refresh_token = _require_str("refresh_token")
+    expires_in = _require_int("expires_in")
+    refresh_token_expires_in = _require_int("refresh_token_expires_in")
+    # scope may be empty string — accept that but require the key is present and a str
+    scope_val = token_body.get("scope")
+    if scope_val is None or not isinstance(scope_val, str):
+        logger.warning(
+            "github_oauth_exchange_failed reason=token_payload_incomplete field=scope",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="github_oauth_exchange_failed",
+        )
+    scope = scope_val
 
     # Fetch installations accessible to this user token
     try:
@@ -459,7 +544,14 @@ async def _resolve_installation_id_from_oauth_code(
         installation_id,
         len(installations),
     )
-    return installation_id
+    return ResolvedOAuthInstall(
+        installation_id=installation_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+        refresh_token_expires_in=refresh_token_expires_in,
+        scope=scope,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +591,7 @@ def get_github_install_url(
         )
     app_slug: str = slug_row.value
 
-    state, exp, jti = _mint_install_state(team_id)
+    state, exp, jti = _mint_install_state(team_id, current_user.id)
     install_url = (
         f"{settings.GITHUB_APP_INSTALL_URL_BASE.rstrip('/')}"
         f"/apps/{app_slug}/installations/new?state={state}"
@@ -657,9 +749,10 @@ async def github_install_callback_get(
     resolved_installation_id = installation_id
     if resolved_installation_id is None and code:
         try:
-            resolved_installation_id = await _resolve_installation_id_from_oauth_code(
+            resolved_oauth = await _resolve_installation_id_from_oauth_code(
                 session, code
             )
+            resolved_installation_id = resolved_oauth.installation_id
         except HTTPException as exc:
             detail = exc.detail
             reason = detail.get("detail", "unknown") if isinstance(detail, dict) else str(detail)
