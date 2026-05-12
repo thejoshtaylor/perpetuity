@@ -631,6 +631,115 @@ def test_oauth_callback_upserts_token_row_on_reinstall(
     assert decrypt_user_token(bytes(token_row.refresh_token_encrypted)) == "ghr_second"
 
 
+def test_get_install_callback_legacy_state_jwt_rejected(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET callback with legacy state JWT (no user_id claim) → redirect with install_state_user_unknown.
+
+    T01 deliberately rejects JWTs that lack a user_id claim. This test mints
+    such a token manually (bypassing _mint_install_state) so a future
+    regression that quietly accepts the legacy shape is caught.
+    """
+    import jwt as _jwt
+
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "LegacyStateJWT")
+    _seed_app_slug(db)
+    _seed_client_id(db)
+    _seed_client_secret(db)
+
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    legacy_payload = {
+        "team_id": team_id,
+        # Deliberately omit user_id — this is the legacy M005 shape.
+        "jti": "legacy" + "a" * 26,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=600)).timestamp()),
+        "iss": "perpetuity-install",
+        "aud": "github-install",
+    }
+    legacy_state = _jwt.encode(legacy_payload, settings.SECRET_KEY, algorithm="HS256")
+
+    # No orch or GitHub mock needed: _decode_install_state raises before the
+    # orchestrator lookup, so the FakeAsyncClient is never called.
+    _install_fake_orch(monkeypatch, {})
+
+    client.cookies.clear()
+    # Use installation_id (no code) so the OAuth exchange is skipped and the
+    # request flows directly into _process_install_callback → _decode_install_state,
+    # where the missing user_id claim triggers the rejection.
+    r = client.get(
+        f"{API}/github/install-callback",
+        params={"installation_id": 800099, "state": legacy_state},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302, r.text
+    location = r.headers["location"]
+    assert "github_install_error=install_state_user_unknown" in location, (
+        f"Expected install_state_user_unknown in redirect, got: {location!r}"
+    )
+
+
+def test_post_install_callback_org_install_path_unchanged(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /github/install-callback (org install, no OAuth code) behaves exactly as M005-sqm8et.
+
+    Regression guard: the S02 token-persistence work must not break the
+    original POST org-install path. A valid state JWT + installation_id must
+    still produce a 200 with the expected JSON body and a persisted row.
+    """
+    _, cookies = _signup(client)
+    team_id = _create_team(client, cookies, "OrgInstallRegression")
+    _seed_app_slug(db)
+
+    state = client.get(
+        f"{API}/teams/{team_id}/github/install-url", cookies=cookies
+    ).json()["state"]
+
+    inst_id = 800001
+    routes: dict[tuple[str, str], object] = {
+        ("GET", f"/v1/installations/{inst_id}/lookup"): _FakeResponse(
+            200,
+            {"account_login": "regression-org", "account_type": "Organization"},
+        ),
+    }
+    _install_fake_orch(monkeypatch, routes)
+
+    client.cookies.clear()
+    r = client.post(
+        f"{API}/github/install-callback",
+        json={"installation_id": inst_id, "setup_action": "install", "state": state},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["installation_id"] == inst_id
+    assert body["team_id"] == team_id
+    assert body["account_login"] == "regression-org"
+    assert body["account_type"] == "Organization"
+
+    db.expire_all()
+    row = db.execute(
+        text(
+            "SELECT installation_id, account_login, account_type, team_id"
+            " FROM github_app_installations WHERE installation_id = :id"
+        ),
+        {"id": inst_id},
+    ).one()
+    assert row.installation_id == inst_id
+    assert row.account_login == "regression-org"
+    assert row.account_type == "Organization"
+    assert str(row.team_id) == team_id
+
+    db.expire_all()
+    count = db.execute(
+        text("SELECT COUNT(*) AS n FROM github_user_oauth_tokens")
+    ).one()
+    assert count.n == 0, "POST org-install path must not create a token row"
+
+
 def test_oauth_callback_user_lookup_failure_redirects_with_error(
     client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
