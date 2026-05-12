@@ -21,12 +21,12 @@ Upstream surfaces consumed: S03's get_user_access_token, UserTokenUnavailable, G
 
 ## Tasks
 
-- [ ] **T01: Extend `_orch_create_repository` to accept and forward optional `user_token`** `est:45m`
+- [x] **T01: Extend `_orch_create_repository` to accept and forward optional `user_token`** `est:45m`
   Lock the helper's signature change before changing the route, so the route change is the only place exception mapping matters. Add user_token: str | None = None to the function signature. Build headers = {X-Orchestrator-Key: settings.ORCHESTRATOR_API_KEY} then if user_token is not None: headers[X-GitHub-User-Token] = user_token. No other behavior change. Add unit test that asserts: (a) calling with user_token=None produces a request without the new header, (b) calling with user_token=ghu_test produces a request with X-GitHub-User-Token: ghu_test, (c) X-Orchestrator-Key header is always present.
   - Files: `backend/app/api/routes/github.py`, `backend/tests/api/routes/test_github_orch_create_repository.py`
   - Verify: cd backend && uv run pytest tests/api/routes/test_github_orch_create_repository.py -v
 
-- [ ] **T02: Wire `account_type` branch + `get_user_access_token` + exception mapping into the route** `est:1.5h`
+- [x] **T02: Wire `account_type` branch + `get_user_access_token` + exception mapping into the route** `est:1.5h`
   This is the slice's user-visible substance. Each exception class has a distinct HTTP status, and each has to be surfaced separately so S06's CTA logic can branch on detail accurately. After the installation_not_found check at :992-993, before body validation at :996, add new section. If installation.account_type != Organization: try user_token = await get_user_access_token(session, current_user.id); catch UserTokenUnavailable and GitHubUserTokenDecryptError and map them to documented HTTP responses. Else: user_token = None. Pass user_token=user_token to _orch_create_repository call at :1019. Add defense-in-depth assertion from must-have (10) immediately before that call.
   - Files: `backend/app/api/routes/github.py`
   - Verify: cd backend && uv run python -c "from app.api.routes.github import create_github_repository; print('ok')"

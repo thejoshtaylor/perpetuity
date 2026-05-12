@@ -70,7 +70,12 @@ from app.api.routes.admin import (
 from app.api.team_access import assert_caller_is_team_admin
 from app.core.config import settings
 from app.core.github_app_oauth import read_github_app_oauth_credentials
-from app.core.github_user_tokens import encrypt_user_token
+from app.core.github_user_tokens import (
+    GitHubUserTokenDecryptError,
+    UserTokenUnavailable,
+    encrypt_user_token,
+    get_user_access_token,
+)
 from app.models import (
     GitHubAppInstallation,
     GitHubAppInstallationPublic,
@@ -1059,19 +1064,29 @@ async def _orch_list_repositories(installation_id: int) -> list[dict[str, Any]]:
 
 
 async def _orch_create_repository(
-    installation_id: int, repo_name: str, description: str | None, private: bool
+    installation_id: int,
+    repo_name: str,
+    description: str | None,
+    private: bool,
+    user_token: str | None = None,
 ) -> dict[str, Any]:
     """Ask the orchestrator to create a new repository via a GitHub installation.
 
     The orchestrator owns the GitHub App private key and is the only side
     that can authenticate against GitHub's create repository endpoint.
 
+    If *user_token* is provided it is forwarded as ``X-GitHub-User-Token`` so
+    the orchestrator can create the repository under the user's personal
+    account (personal-install path).
+
     Returns {full_name, name, ...} on success.
     Raises HTTPException 502 on any GitHub or transport error.
     """
     base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
     url = f"{base}/v1/installations/{installation_id}/create-repository"
-    headers = {"X-Orchestrator-Key": settings.ORCHESTRATOR_API_KEY}
+    headers: dict[str, str] = {"X-Orchestrator-Key": settings.ORCHESTRATOR_API_KEY}
+    if user_token is not None:
+        headers["X-GitHub-User-Token"] = user_token
 
     payload = {
         "repo_name": repo_name,
@@ -1196,6 +1211,43 @@ async def create_github_repository(
     if installation is None:
         raise HTTPException(status_code=404, detail="installation_not_found")
 
+    # Resolve user token for personal installs; skip for org installs.
+    # We deliberately skip GET /installation/{id} pre-flight here — the
+    # installation row was verified above and the token resolution path is
+    # sufficient for personal-install auth.
+    if installation.account_type != "Organization":
+        try:
+            user_token: str | None = await get_user_access_token(
+                session, current_user.id
+            )
+        except UserTokenUnavailable as exc:
+            if exc.reason == "refresh_transient":
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="github_token_refresh_transient",
+                ) from exc
+            # row_missing | bad_refresh_token | refresh_rejected |
+            # refresh_unexpected_response → 409 so CTA can branch
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "github_user_token_required",
+                    "installation_id": installation_id,
+                    "reason": exc.reason,
+                },
+            ) from exc
+        except GitHubUserTokenDecryptError as exc:
+            logger.error(
+                "github_user_token_decrypt_failed user_id=%s",
+                current_user.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="github_user_token_decrypt_failed",
+            ) from exc
+    else:
+        user_token = None
+
     # Validate request body
     repo_name = body.get("repo_name")
     description = body.get("description")
@@ -1219,12 +1271,19 @@ async def create_github_repository(
             detail="private_must_be_boolean",
         )
 
+    # Defense-in-depth: personal installs MUST have a user token; org installs
+    # MUST NOT (None signals app-level auth on the orchestrator side).
+    assert (installation.account_type == "Organization") == (
+        user_token is None
+    ), f"user_token invariant violated: account_type={installation.account_type!r} user_token={'<set>' if user_token else 'None'}"
+
     try:
         repo = await _orch_create_repository(
             installation_id,
             repo_name.strip(),
             description.strip() if description else None,
             private,
+            user_token=user_token,
         )
     except HTTPException:
         raise
