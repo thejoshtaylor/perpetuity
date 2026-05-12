@@ -31,7 +31,7 @@ Upstream surfaces consumed: S04's X-GitHub-User-Token header forwarding; existin
   - Files: `orchestrator/orchestrator/routes_github.py`
   - Verify: cd orchestrator && uv run python -c "from orchestrator.routes_github import create_repository_route; print('ok')"
 
-- [ ] **T03: Integration tests `test_create_repository_user_token.py` + M005-sqm8et 502->422 update** `est:2.5h`
+- [x] **T03: Integration tests `test_create_repository_user_token.py` + M005-sqm8et 502->422 update** `est:2.5h`
   This is where the milestone's core proof lands — must-have (6) test_personal_install_with_user_token_uses_user_token_for_user_repos is the assertion that POST /user/repos accepts the forwarded token. Until this passes, every other slice in M006-ydo2ce is plumbing for a claim we have not yet proven. Implement all five tests in must-have (6) using respx against api.github.com so the test asserts the exact URL hit by the orchestrator. For the installation-token-mint mock, intercept api.github.com/app/installations/<id>/access_tokens and assert call count of zero in the personal-install-with-user-token test. Update existing M005-sqm8et test that asserts 502 on personal-install create-repository to assert 422 with the new detail.
   - Files: `orchestrator/tests/integration/test_create_repository_user_token.py`, `orchestrator/tests/integration/test_create_repository.py`
   - Verify: cd orchestrator && uv run pytest tests/integration/test_create_repository_user_token.py tests/integration/test_create_repository.py -v

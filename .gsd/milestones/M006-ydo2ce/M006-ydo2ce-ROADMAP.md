@@ -24,7 +24,7 @@
 - [x] **S04: S04** `risk:low` `depends:[]`
   > After this: Three backend-route integration tests against the test client: (1) personal install + token row present for current_user.id → orchestrator receives a httpx call with X-GitHub-User-Token: <plaintext> header; backend returns 201. (2) personal install + no token row → backend returns 409 {"detail": "github_user_token_required", "installation_id": <int>} without calling the orchestrator. (3) org install → backend calls the orchestrator without the new header (M005-sqm8et regression-clean).
 
-- [ ] **S05: S05** `risk:high` `depends:[]`
+- [x] **S05: S05** `risk:high` `depends:[]`
   > After this: Three orchestrator integration tests against a respx-mocked GitHub: (1) personal install + X-GitHub-User-Token: ghu_test header → orchestrator calls POST api.github.com/user/repos with Authorization: token ghu_test; GitHub mock returns 201. (2) personal install + no header → orchestrator returns 422 with detail == "user_token_required_for_personal_install". (3) org install (with or without header) → orchestrator calls POST api.github.com/orgs/<login>/repos with Authorization: token <install_token>; no header forwarding regardless of X-GitHub-User-Token presence.
 
 - [ ] **S06: Frontend reinstall CTA on 409 + admin runbook** `risk:low` `depends:[S04]`
