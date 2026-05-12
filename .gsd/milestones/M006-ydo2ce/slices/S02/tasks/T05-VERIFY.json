@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T05",
+  "unitId": "M006-ydo2ce/S02/T05",
+  "timestamp": 1778622115308,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "cd backend",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    },
+    {
+      "command": "uv run pytest tests/api/routes/test_github_install_callback.py -v -k \"legacy_state or org_install\"",
+      "exitCode": 4,
+      "durationMs": 244,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

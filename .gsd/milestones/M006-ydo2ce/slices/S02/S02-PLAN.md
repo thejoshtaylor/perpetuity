@@ -41,7 +41,7 @@ Upstream surfaces consumed: S01's GitHubUserOAuthToken SQLModel + encrypt_user_t
   - Files: `backend/tests/integration/test_github_oauth_token_persistence.py`, `scripts/redaction-sweep.sh`
   - Verify: cd backend && uv run pytest tests/integration/test_github_oauth_token_persistence.py -v && bash scripts/redaction-sweep.sh
 
-- [ ] **T05: Backwards-compat: legacy state JWT rejection test + M005-sqm8et regression check** `est:30m`
+- [x] **T05: Backwards-compat: legacy state JWT rejection test + M005-sqm8et regression check** `est:30m`
   T01 deliberately rejects legacy state JWTs without user_id; the rejection path must be tested explicitly so a future regression that quietly accepts the legacy shape is caught. Add test that mints a legacy-shape state JWT (manually construct jwt.encode without user_id claim, using settings.SECRET_KEY), calls the GET install-callback endpoint with that state + a mock OAuth code, asserts the redirect URL contains github_install_error=install_state_user_unknown. Add a second test asserting the existing org-install path (POST /github/install-callback with installation_id, state) STILL works without modification.
   - Files: `backend/tests/api/routes/test_github_install_callback.py`
   - Verify: cd backend && uv run pytest tests/api/routes/test_github_install_callback.py -v -k "legacy_state or org_install"
