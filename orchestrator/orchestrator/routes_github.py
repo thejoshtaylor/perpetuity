@@ -225,3 +225,145 @@ async def list_installation_repositories_route(
     ]
     
     return result
+
+
+@router.post("/{installation_id}/create-repository")
+async def create_repository_route(
+    installation_id: int,
+    request: Request,
+) -> dict[str, Any]:
+    """Create a new repository via a GitHub App installation.
+    
+    Request body: {repo_name, description?, private}
+    Returns: {name, full_name, ...} on success.
+    """
+    pg_pool = getattr(request.app.state, "pg", None)
+    
+    try:
+        body = await request.json()
+    except Exception as exc:
+        logger.warning(
+            "create_repository_failed installation_id=%s reason=invalid_json err=%s",
+            installation_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid_request_body",
+        )
+    
+    # Get installation token
+    try:
+        token_response = await get_installation_token(
+            installation_id,
+            redis_client=_redis_client_from(request),
+            pg_pool=pg_pool,
+        )
+    except _NotConfigured as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.detail,
+        )
+    except InstallationTokenMintFailed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "detail": "github_create_repository_failed",
+                "status": exc.status,
+                "reason": exc.reason,
+            },
+        )
+    
+    token = token_response.get("token")
+    if not token:
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=no_token",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+    
+    # Validate request body
+    repo_name = body.get("repo_name")
+    description = body.get("description")
+    private = body.get("private", True)
+    
+    if not isinstance(repo_name, str) or not repo_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="repo_name_required",
+        )
+    
+    if description is not None and not isinstance(description, str):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="description_must_be_string",
+        )
+    
+    if not isinstance(private, bool):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="private_must_be_boolean",
+        )
+    
+    # Create repository via GitHub API
+    import httpx
+    
+    create_payload = {
+        "name": repo_name.strip(),
+        "private": private,
+    }
+    if description:
+        create_payload["description"] = description.strip()
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                "https://api.github.com/user/repos",
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json=create_payload,
+                timeout=30.0,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=transport err=%s",
+            installation_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+    
+    if r.status_code != 201:
+        logger.warning(
+            "github_create_repository_failed installation_id=%s reason=api_status status=%s body=%s",
+            installation_id,
+            r.status_code,
+            r.text,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_create_repository_failed",
+        )
+    
+    repo = r.json()
+    logger.info(
+        "github_repository_created installation_id=%s repo_name=%s",
+        installation_id,
+        repo.get("name"),
+    )
+    
+    # Return minimal schema matching list endpoint
+    return {
+        "name": repo.get("name"),
+        "full_name": repo.get("full_name"),
+        "updated_at": repo.get("updated_at"),
+        "description": repo.get("description"),
+    }
