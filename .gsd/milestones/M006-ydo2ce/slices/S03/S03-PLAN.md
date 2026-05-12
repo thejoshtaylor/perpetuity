@@ -31,7 +31,7 @@ Upstream surfaces consumed: S01's GitHubUserOAuthToken SQLModel + encrypt_user_t
   - Files: `backend/app/core/github_user_tokens.py`, `backend/tests/unit/test_github_user_tokens_refresh.py`
   - Verify: cd backend && uv run pytest tests/unit/test_github_user_tokens_refresh.py -v -k "happy or row_missing"
 
-- [ ] **T03: Refresh-on-expiry path + success update + failure-mode branches** `est:2h`
+- [x] **T03: Refresh-on-expiry path + success update + failure-mode branches** `est:2h`
   This is the slice's substance. Each documented reason in must-have (5) needs its own respx-driven test. Extend get_user_access_token to handle expired-access branch: log github_user_token_refresh_attempted, read client_id/secret via T01's helper, decrypt the refresh token (re-raise GitHubUserTokenDecryptError if it fails), POST to _GITHUB_TOKEN_URL with timeout _ORCH_TIMEOUT, parse defensively. On success: update row, commit, log github_user_token_refreshed, return new plaintext. On four failure branches: DELETE the row, commit, log github_user_token_refresh_failed reason=..., raise UserTokenUnavailable. On network-class exception: no DELETE, retry once with no backoff, then raise UserTokenUnavailable(reason=refresh_transient).
   - Files: `backend/app/core/github_user_tokens.py`, `backend/tests/unit/test_github_user_tokens_refresh.py`
   - Verify: cd backend && uv run pytest tests/unit/test_github_user_tokens_refresh.py -v
