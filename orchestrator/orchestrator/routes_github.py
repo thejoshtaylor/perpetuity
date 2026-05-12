@@ -251,63 +251,32 @@ async def create_repository_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invalid_request_body",
         )
-    
-    # Get installation token
-    try:
-        token_response = await get_installation_token(
-            installation_id,
-            redis_client=_redis_client_from(request),
-            pg_pool=pg_pool,
-        )
-    except _NotConfigured as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=exc.detail,
-        )
-    except InstallationTokenMintFailed as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "detail": "github_create_repository_failed",
-                "status": exc.status,
-                "reason": exc.reason,
-            },
-        )
-    
-    token = token_response.get("token")
-    if not token:
-        logger.warning(
-            "github_create_repository_failed installation_id=%s reason=no_token",
-            installation_id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="github_create_repository_failed",
-        )
-    
+
+    user_token = (request.headers.get("X-GitHub-User-Token") or "").strip() or None
+
     # Validate request body
     repo_name = body.get("repo_name")
     description = body.get("description")
     private = body.get("private", True)
-    
+
     if not isinstance(repo_name, str) or not repo_name.strip():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="repo_name_required",
         )
-    
+
     if description is not None and not isinstance(description, str):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="description_must_be_string",
         )
-    
+
     if not isinstance(private, bool):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="private_must_be_boolean",
         )
-    
+
     # Look up the installation to determine the owning account
     try:
         install_info = await lookup_installation(installation_id, pg_pool=pg_pool)
@@ -329,10 +298,72 @@ async def create_repository_route(
     account_login = install_info["account_login"]
     account_type = install_info["account_type"]
 
-    if account_type == "Organization":
-        create_url = f"https://api.github.com/orgs/{account_login}/repos"
-    else:
+    # Branch on account_type + user_token presence (M006/S05 decision matrix)
+    if account_type == "User":
+        if user_token is None:
+            # Personal install but no user token — 422 before any mint attempt
+            logger.warning(
+                "github_create_repository_failed installation_id=%s"
+                " reason=user_token_required_for_personal_install",
+                installation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="user_token_required_for_personal_install",
+            )
+        # Personal install + user token present — use user token, skip install-token mint
         create_url = "https://api.github.com/user/repos"
+        auth_header = f"token {user_token}"
+        logger.info(
+            "github_create_repository installation_id=%s token_class=user_token"
+            " user_token_prefix=%s",
+            installation_id,
+            user_token[:4],
+        )
+    else:
+        # Organization install
+        if user_token is not None:
+            logger.warning(
+                "github_create_repository_unexpected_user_token_on_org"
+                " installation_id=%s account_login=%s",
+                installation_id,
+                account_login,
+            )
+        # Get installation token for org path
+        try:
+            token_response = await get_installation_token(
+                installation_id,
+                redis_client=_redis_client_from(request),
+                pg_pool=pg_pool,
+            )
+        except _NotConfigured as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=exc.detail,
+            )
+        except InstallationTokenMintFailed as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "detail": "github_create_repository_failed",
+                    "status": exc.status,
+                    "reason": exc.reason,
+                },
+            )
+
+        install_token = token_response.get("token")
+        if not install_token:
+            logger.warning(
+                "github_create_repository_failed installation_id=%s reason=no_token",
+                installation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="github_create_repository_failed",
+            )
+
+        create_url = f"https://api.github.com/orgs/{account_login}/repos"
+        auth_header = f"token {install_token}"
 
     # Create repository via GitHub API
     import httpx
@@ -349,7 +380,7 @@ async def create_repository_route(
             r = await client.post(
                 create_url,
                 headers={
-                    "Authorization": f"token {token}",
+                    "Authorization": auth_header,
                     "Accept": "application/vnd.github+json",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
@@ -366,7 +397,7 @@ async def create_repository_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="github_create_repository_failed",
         )
-    
+
     if r.status_code != 201:
         logger.warning(
             "github_create_repository_failed installation_id=%s reason=api_status status=%s body=%s",
@@ -378,14 +409,14 @@ async def create_repository_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="github_create_repository_failed",
         )
-    
+
     repo = r.json()
     logger.info(
         "github_repository_created installation_id=%s repo_name=%s",
         installation_id,
         repo.get("name"),
     )
-    
+
     # Return minimal schema matching list endpoint
     return {
         "name": repo.get("name"),

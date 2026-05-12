@@ -21,12 +21,12 @@ Upstream surfaces consumed: S04's X-GitHub-User-Token header forwarding; existin
 
 ## Tasks
 
-- [ ] **T01: Reorder install-token mint to after `lookup_installation` + add header read** `est:45m`
+- [x] **T01: Reorder install-token mint to after `lookup_installation` + add header read** `est:45m`
   Minting the install token before knowing the install type wastes a GitHub mint call on personal installs that won't use it; doing so also makes the 422 path noisy in logs. Reorder once before adding branching logic so the diff is easier to review. Read user_token = (request.headers.get(X-GitHub-User-Token) or '').strip() or None immediately after the JSON body parse (:243-253). Move the get_installation_token block at :256-275 and the resulting token variable definition at :277-286 to AFTER the lookup_installation block at :311-330. Keep all existing exception mapping intact.
   - Files: `orchestrator/orchestrator/routes_github.py`
   - Verify: cd orchestrator && uv run pytest tests/integration/test_create_repository.py -v
 
-- [ ] **T02: Branch on `account_type` + user-token-prefer logic + 422 defense-in-depth** `est:1.5h`
+- [x] **T02: Branch on `account_type` + user-token-prefer logic + 422 defense-in-depth** `est:1.5h`
   The slice's substance — every documented branch combination of (account_type, user_token) reaches the right HTTP call. Implement must-have (3) decision matrix. For personal-install + user-token-present branch: build create_url = https://api.github.com/user/repos and auth_header = token <user_token>. For personal-install + no-token branch: return 422 with documented detail BEFORE install-token mint code path is reached. For org installs: log WARN if user_token is not None and continue with install-token path. Success-log line for user-token branch includes token_class=user_token user_token_prefix=<first 4 chars>.
   - Files: `orchestrator/orchestrator/routes_github.py`
   - Verify: cd orchestrator && uv run python -c "from orchestrator.routes_github import create_repository_route; print('ok')"
