@@ -32,6 +32,98 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+// ---------------------------------------------------------------------------
+// Typed error for the 409 github_user_token_required path
+// ---------------------------------------------------------------------------
+
+export class GitHubUserTokenRequiredError extends Error {
+  installationId: number
+  reason: string
+
+  constructor(installationId: number, reason: string) {
+    super("GitHub user token required")
+    this.name = "GitHubUserTokenRequiredError"
+    this.installationId = installationId
+    this.reason = reason
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ReinstallCta — colocated inline component
+// ---------------------------------------------------------------------------
+
+type ReinstallCtaProps = {
+  teamId: string
+}
+
+const ReinstallCta = ({ teamId }: ReinstallCtaProps) => {
+  const [installUrlError, setInstallUrlError] = useState<string | null>(null)
+
+  const installUrlMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/v1/teams/${teamId}/github/install-url`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(
+          (body as { detail?: string }).detail || "Failed to get install URL",
+        )
+      }
+      return res.json() as Promise<{ install_url: string }>
+    },
+    onSuccess: (data) => {
+      setInstallUrlError(null)
+      window.open(data.install_url, "_blank", "noopener,noreferrer")
+    },
+    onError: (err) => {
+      const message =
+        err instanceof Error ? err.message : "Failed to get install URL"
+      setInstallUrlError(message)
+    },
+  })
+
+  return (
+    <div
+      className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950"
+      data-testid="create-repo-reinstall-cta"
+    >
+      <p className="font-medium text-amber-900 dark:text-amber-100">
+        GitHub access required
+      </p>
+      <p className="mt-1 text-amber-800 dark:text-amber-200">
+        Perpetuity needs permission to create repositories on your behalf.
+        Reinstall the Perpetuity App on GitHub to grant repo creation access.
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-3"
+        disabled={installUrlMutation.isPending}
+        onClick={() => {
+          setInstallUrlError(null)
+          installUrlMutation.mutate()
+        }}
+        data-testid="create-repo-reinstall-button"
+      >
+        {installUrlMutation.isPending ? "Opening…" : "Reinstall on GitHub"}
+      </Button>
+      {installUrlError && (
+        <p
+          className="mt-2 text-destructive text-sm"
+          data-testid="create-repo-reinstall-error"
+          role="alert"
+        >
+          {installUrlError}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Form schema
+// ---------------------------------------------------------------------------
+
 const repoFormSchema = z.object({
   repo_name: z
     .string()
@@ -70,6 +162,7 @@ export const CreateGitHubRepoDialog = ({
   onSuccess,
 }: CreateGitHubRepoDialogProps) => {
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [tokenRequired, setTokenRequired] = useState(false)
 
   const form = useForm<RepoFormData>({
     resolver: zodResolver(repoFormSchema),
@@ -97,6 +190,35 @@ export const CreateGitHubRepoDialog = ({
       )
       if (!res.ok) {
         const body = await res.json()
+        if (
+          res.status === 409 &&
+          body.detail === "github_user_token_required"
+        ) {
+          console.warn("github_user_token_required", {
+            installationId: body.installation_id,
+            reason: body.reason,
+          })
+          throw new GitHubUserTokenRequiredError(
+            body.installation_id,
+            body.reason,
+          )
+        }
+        if (
+          res.status === 502 &&
+          body.detail === "github_token_refresh_transient"
+        ) {
+          throw new Error(
+            "GitHub had a temporary problem. Try again in a moment.",
+          )
+        }
+        if (
+          res.status === 503 &&
+          body.detail === "github_user_token_decrypt_failed"
+        ) {
+          throw new Error(
+            "A configuration error prevented repo creation. The operator has been notified.",
+          )
+        }
         throw new Error(body.detail || "Failed to create repository")
       }
       return res.json()
@@ -105,13 +227,20 @@ export const CreateGitHubRepoDialog = ({
       const repoFullName = data.full_name
       form.reset()
       setSubmitError(null)
+      setTokenRequired(false)
       onOpenChange(false)
       onSuccess(repoFullName)
     },
     onError: (err) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to create repository"
-      setSubmitError(message)
+      if (err instanceof GitHubUserTokenRequiredError) {
+        setTokenRequired(true)
+        setSubmitError(null)
+      } else {
+        setTokenRequired(false)
+        const message =
+          err instanceof Error ? err.message : "Failed to create repository"
+        setSubmitError(message)
+      }
     },
   })
 
@@ -130,6 +259,7 @@ export const CreateGitHubRepoDialog = ({
         if (!next) {
           form.reset()
           setSubmitError(null)
+          setTokenRequired(false)
         }
       }}
     >
@@ -225,6 +355,8 @@ export const CreateGitHubRepoDialog = ({
                 )}
               />
 
+              {tokenRequired && <ReinstallCta teamId={teamId} />}
+
               {submitError && (
                 <p
                   className="text-destructive text-sm"
@@ -246,13 +378,15 @@ export const CreateGitHubRepoDialog = ({
                   Cancel
                 </Button>
               </DialogClose>
-              <LoadingButton
-                type="submit"
-                loading={mutation.isPending}
-                data-testid="create-repo-submit"
-              >
-                Create Repository
-              </LoadingButton>
+              {!tokenRequired ? (
+                <LoadingButton
+                  type="submit"
+                  loading={mutation.isPending}
+                  data-testid="create-repo-submit"
+                >
+                  Create Repository
+                </LoadingButton>
+              ) : null}
             </DialogFooter>
           </form>
         </Form>

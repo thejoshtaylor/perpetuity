@@ -27,7 +27,7 @@
 - [x] **S05: S05** `risk:high` `depends:[]`
   > After this: Three orchestrator integration tests against a respx-mocked GitHub: (1) personal install + X-GitHub-User-Token: ghu_test header → orchestrator calls POST api.github.com/user/repos with Authorization: token ghu_test; GitHub mock returns 201. (2) personal install + no header → orchestrator returns 422 with detail == "user_token_required_for_personal_install". (3) org install (with or without header) → orchestrator calls POST api.github.com/orgs/<login>/repos with Authorization: token <install_token>; no header forwarding regardless of X-GitHub-User-Token presence.
 
-- [ ] **S06: Frontend reinstall CTA on 409 + admin runbook** `risk:low` `depends:[S04]`
+- [ ] **S06: S06** `risk:low` `depends:[]`
   > After this: Playwright test mocks the backend to return 409 {"detail":"github_user_token_required","installation_id":12345,"reason":"row_missing"} on the create-repository POST. The dialog renders an inline error with the documented copy AND a button labeled "Reinstall on GitHub". Clicking the button calls GET /api/v1/teams/{teamId}/github/install-url (mocked to return install_url), then opens that URL via window.open(url, "_blank", "noopener,noreferrer"). The component test asserts the inline error is visible, the button is visible, and clicking the button fetches the install URL and calls window.open with the right url + noopener,noreferrer flags.
 
 - [ ] **S07: Final integrated acceptance against real GitHub.com** `risk:medium` `depends:[S05,S06]`

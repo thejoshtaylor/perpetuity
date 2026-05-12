@@ -21,12 +21,12 @@ Upstream surfaces consumed: S04's 409 / 502 / 503 response shapes; the existing 
 
 ## Tasks
 
-- [ ] **T01: `GitHubUserTokenRequiredError` + mutation error parsing + `tokenRequired` state** `est:1h`
+- [x] **T01: `GitHubUserTokenRequiredError` + mutation error parsing + `tokenRequired` state** `est:1h`
   Separating the 409 path from the existing generic error path is the foundation for all the UX work; do it once with a typed error class so the JSX branch is a clean if (tokenRequired) ... else if (submitError) .... Define class GitHubUserTokenRequiredError extends Error with installationId and reason. In mutationFn, branch on (status===409 && body.detail===github_user_token_required) and throw typed error; on (status===502 && body.detail===github_token_refresh_transient) throw new Error('GitHub had a temporary problem. Try again in a moment.'); on (status===503 && body.detail===github_user_token_decrypt_failed) throw new Error('A configuration error prevented repo creation. The operator has been notified.'). Add tokenRequired state. In onError, branch on instanceof.
   - Files: `frontend/src/components/Teams/Projects/CreateGitHubRepoDialog.tsx`
   - Verify: cd frontend && npx tsc --noEmit && npm test -- CreateGitHubRepoDialog
 
-- [ ] **T02: Reinstall CTA JSX + install-url fetch + `window.open`** `est:1h`
+- [x] **T02: Reinstall CTA JSX + install-url fetch + `window.open`** `est:1h`
   This is the user-visible substance of the slice. Above the existing submitError JSX (:228-236), add conditional block {tokenRequired && (<ReinstallCta ...>)}. Define ReinstallCta as a colocated component. CTA renders the copy block + button with data-testid=create-repo-reinstall-cta. Button's onClick uses a React Query mutation that fetches /api/v1/teams/${teamId}/github/install-url and on success calls window.open(data.install_url, _blank, noopener,noreferrer). On fetch failure, sets a local installUrlError state shown below the button. In parent dialog's footer JSX, replace existing LoadingButton type=submit with conditional: {!tokenRequired ? <LoadingButton type=submit ...> : null}. Cancel button visible in both branches.
   - Files: `frontend/src/components/Teams/Projects/CreateGitHubRepoDialog.tsx`
   - Verify: cd frontend && npx tsc --noEmit
