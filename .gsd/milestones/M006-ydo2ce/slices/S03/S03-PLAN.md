@@ -21,12 +21,12 @@ Upstream surfaces consumed: S01's GitHubUserOAuthToken SQLModel + encrypt_user_t
 
 ## Tasks
 
-- [ ] **T01: Extract `_read_github_app_oauth_credentials` into `app/core/github_app_oauth.py`** `est:45m`
+- [x] **T01: Extract `_read_github_app_oauth_credentials` into `app/core/github_app_oauth.py`** `est:45m`
   The refresh helper must read client_id + client_secret from system_settings — the exact pattern that already exists at backend/app/api/routes/github.py:307-342. Duplicating it would force the core helper to import from a route module (wrong layering) OR copy-paste the pattern (drift). Extract once. Create module with read_github_app_oauth_credentials(session) -> tuple[str, str] that fetches both rows, decrypts the secret via decrypt_setting, raises HTTPException(503, detail=github_app_not_configured) on missing or HTTPException(503, detail=github_app_credential_error) on decrypt failure. Refactor _resolve_installation_id_from_oauth_code to call through this helper.
   - Files: `backend/app/core/github_app_oauth.py`, `backend/app/api/routes/github.py`, `backend/tests/unit/test_github_app_oauth_credentials.py`
   - Verify: cd backend && uv run pytest tests/unit/test_github_app_oauth_credentials.py tests/api/routes/test_github_oauth_resolve.py -v
 
-- [ ] **T02: `get_user_access_token` + `UserTokenUnavailable` + happy-path/skew logic** `est:1h`
+- [x] **T02: `get_user_access_token` + `UserTokenUnavailable` + happy-path/skew logic** `est:1h`
   The core unit-of-work. Locking the contract before adding the network paths means refresh-path failures are easy to differentiate from logic bugs. Add class UserTokenUnavailable(Exception) with user_id and reason attributes. Add async get_user_access_token(session, user_id) -> str with: row missing -> UserTokenUnavailable(reason=row_missing); row exists AND now() < access_token_expires_at - 60s -> decrypt and return the access token (no GitHub call). Module-level constants _ACCESS_TOKEN_SKEW_SECONDS = 60 and _GITHUB_TOKEN_URL.
   - Files: `backend/app/core/github_user_tokens.py`, `backend/tests/unit/test_github_user_tokens_refresh.py`
   - Verify: cd backend && uv run pytest tests/unit/test_github_user_tokens_refresh.py -v -k "happy or row_missing"

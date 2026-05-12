@@ -65,13 +65,11 @@ from sqlmodel import col, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.routes.admin import (
-    GITHUB_APP_CLIENT_ID_KEY,
-    GITHUB_APP_CLIENT_SECRET_KEY,
     GITHUB_APP_SLUG_KEY,
 )
 from app.api.team_access import assert_caller_is_team_admin
 from app.core.config import settings
-from app.core.encryption import SystemSettingDecryptError, decrypt_setting
+from app.core.github_app_oauth import read_github_app_oauth_credentials
 from app.core.github_user_tokens import encrypt_user_token
 from app.models import (
     GitHubAppInstallation,
@@ -347,43 +345,8 @@ async def _resolve_installation_id_from_oauth_code(
     Raises HTTPException 502 on any GitHub API error, 503 if credentials are
     missing or unreadable.
     """
-    # Read client_id
-    client_id_row = session.get(SystemSetting, GITHUB_APP_CLIENT_ID_KEY)
-    if (
-        client_id_row is None
-        or not client_id_row.has_value
-        or not isinstance(client_id_row.value, str)
-        or not client_id_row.value
-    ):
-        logger.warning(
-            "github_oauth_exchange_failed reason=client_id_not_configured"
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="github_app_not_configured",
-        )
-    client_id: str = client_id_row.value
-
-    # Read client_secret (encrypted)
-    secret_row = session.get(SystemSetting, GITHUB_APP_CLIENT_SECRET_KEY)
-    if secret_row is None or not secret_row.has_value or not secret_row.value_encrypted:
-        logger.warning(
-            "github_oauth_exchange_failed reason=client_secret_not_configured"
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="github_app_not_configured",
-        )
-    try:
-        client_secret = decrypt_setting(bytes(secret_row.value_encrypted))
-    except SystemSettingDecryptError:
-        logger.warning(
-            "github_oauth_exchange_failed reason=client_secret_decrypt_error"
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="github_app_credential_error",
-        )
+    # Read client_id + client_secret from system_settings
+    client_id, client_secret = read_github_app_oauth_credentials(session)
 
     # Exchange code for access token
     try:

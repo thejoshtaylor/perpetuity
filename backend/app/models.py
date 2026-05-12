@@ -1570,6 +1570,16 @@ class GitHubUserOAuthToken(SQLModel, table=True):
     github_login: str | None = Field(default=None, max_length=255, nullable=True)
     access_token_encrypted: bytes | None = Field(default=None, nullable=True)
     refresh_token_encrypted: bytes | None = Field(default=None, nullable=True)
+    access_token_expires_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
+    refresh_token_expires_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+        nullable=True,
+    )
     token_type: str | None = Field(default=None, max_length=64, nullable=True)
     scope: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(

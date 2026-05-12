@@ -18,7 +18,7 @@
 - [x] **S02: S02** `risk:medium` `depends:[]`
   > After this: A respx-mocked GitHub returns a token-exchange payload and `{id: 42, login: "alice"}` from `GET api.github.com/user`. The OAuth callback completes; a SELECT against `github_user_oauth_tokens` shows one row with user_id = current_user.id, github_user_id = 42, scopes = "repo,read:user", both ciphertext columns non-NULL and not containing the raw tokens, and access_token_expires_at ≈ now() + 28800s / refresh_token_expires_at ≈ now() + 15897600s. Re-running the callback overwrites the same row.
 
-- [ ] **S03: `get_user_access_token` refresh-on-read helper** `risk:medium` `depends:[S01]`
+- [ ] **S03: S03** `risk:medium` `depends:[]`
   > After this: Three unit tests against a respx-mocked token endpoint: (1) row exists, access token unexpired → returns the stored plaintext directly (no GitHub call). (2) row exists, access token expired but refresh token valid → POSTs to github.com/login/oauth/access_token with grant_type=refresh_token; helper updates the row and returns the new plaintext. (3) row exists, refresh token expired → GitHub returns 400 bad_refresh_token; the helper deletes the row and raises UserTokenUnavailable. (4) row does not exist → raises UserTokenUnavailable without making any HTTP call.
 
 - [ ] **S04: Backend forwards `X-GitHub-User-Token` to orchestrator for personal installs** `risk:low` `depends:[S02,S03]`
