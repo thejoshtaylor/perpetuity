@@ -782,3 +782,102 @@ def delete_github_installation(
         installation_id,
     )
     return {"id": str(installation_row_id), "deleted": True}
+
+
+async def _orch_list_repositories(installation_id: int) -> list[dict[str, Any]]:
+    """Ask the orchestrator for repositories accessible via an installation.
+
+    Returns a list of repos sorted by most recently updated, each with:
+    {name, full_name, updated_at, ...}
+
+    Raises HTTPException 502 on any GitHub or transport error.
+    """
+    base = settings.ORCHESTRATOR_BASE_URL.rstrip("/")
+    url = f"{base}/v1/installations/{installation_id}/repositories"
+    headers = {"X-Orchestrator-Key": settings.ORCHESTRATOR_API_KEY}
+
+    try:
+        async with httpx.AsyncClient(timeout=_ORCH_TIMEOUT) as c:
+            r = await c.get(url, headers=headers)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=timeout",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=transport err=%s",
+            installation_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+
+    if r.status_code != 200:
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=%s",
+            installation_id,
+            r.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+
+    try:
+        body = r.json()
+    except ValueError:
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=malformed_response",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+
+    if not isinstance(body, list):
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=malformed_response",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+    return body
+
+
+@router.get("/teams/{team_id}/github/installations/{installation_id}/repositories")
+async def list_installation_repositories(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    team_id: uuid.UUID,
+    installation_id: int,
+) -> dict[str, Any]:
+    """List repositories accessible via a GitHub installation.
+
+    Team-admin gated. Returns {data, count} envelope with repos sorted by
+    most recently updated at the top.
+    """
+    assert_caller_is_team_admin(session, team_id, current_user.id)
+
+    # Verify the installation belongs to this team
+    installation = session.exec(
+        select(GitHubAppInstallation).where(
+            GitHubAppInstallation.team_id == team_id,
+            GitHubAppInstallation.installation_id == installation_id,
+        )
+    ).first()
+    if installation is None:
+        raise HTTPException(status_code=404, detail="installation_not_found")
+
+    repos = await _orch_list_repositories(installation_id)
+    return {"data": repos, "count": len(repos)}

@@ -110,3 +110,118 @@ async def lookup_installation_route(
                 "reason": exc.reason,
             },
         )
+
+
+@router.get("/{installation_id}/repositories")
+async def list_installation_repositories_route(
+    installation_id: int,
+    request: Request,
+) -> list[dict[str, Any]]:
+    """List repositories accessible via a GitHub App installation.
+
+    Returns a list of repositories sorted by most recently updated at the top,
+    each with: {name, full_name, updated_at, description, ...}
+
+    Fetches from GitHub API using an installation token.
+    """
+    pg_pool = getattr(request.app.state, "pg", None)
+    try:
+        token_response = await get_installation_token(
+            installation_id,
+            redis_client=_redis_client_from(request),
+            pg_pool=pg_pool,
+        )
+    except _NotConfigured as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.detail,
+        )
+    except InstallationTokenMintFailed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "detail": "github_list_repositories_failed",
+                "status": exc.status,
+                "reason": exc.reason,
+            },
+        )
+
+    token = token_response.get("token")
+    if not token:
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=no_token",
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+
+    # Fetch repositories from GitHub API, paginated
+    import httpx
+    
+    all_repos = []
+    page = 1
+    per_page = 100
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            while True:
+                r = await client.get(
+                    "https://api.github.com/installation/repositories",
+                    headers={
+                        "Authorization": f"token {token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={
+                        "page": page,
+                        "per_page": per_page,
+                        "sort": "updated",
+                        "direction": "desc",
+                    },
+                    timeout=30.0,
+                )
+                
+                if r.status_code != 200:
+                    logger.warning(
+                        "github_list_repositories_failed installation_id=%s reason=api_status status=%s",
+                        installation_id,
+                        r.status_code,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="github_list_repositories_failed",
+                    )
+                
+                body = r.json()
+                repos = body.get("repositories", [])
+                
+                if not repos:
+                    break
+                
+                all_repos.extend(repos)
+                page += 1
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "github_list_repositories_failed installation_id=%s reason=transport err=%s",
+            installation_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="github_list_repositories_failed",
+        )
+
+    # Transform to minimal schema: {name, full_name, updated_at, description}
+    result = [
+        {
+            "name": repo.get("name"),
+            "full_name": repo.get("full_name"),
+            "updated_at": repo.get("updated_at"),
+            "description": repo.get("description"),
+        }
+        for repo in all_repos
+    ]
+    
+    return result
