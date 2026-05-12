@@ -18,6 +18,12 @@ node_modules/
 !.gsd/QUEUE.md
 !.gsd/milestones/
 .gsd/milestones/*/anchors/
+.gsd/activity/
+.gsd/runtime/
+.gsd/auto.lock
+.gsd/gsd.db*
+.gsd/completed-units*.json
+.gsd/event-log.jsonl
 .gsd-id
 .mcp.json
 .bg-shell/

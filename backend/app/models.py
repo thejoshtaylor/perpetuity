@@ -1542,3 +1542,57 @@ class WorkflowRunsPublic(SQLModel):
 # Request body for POST /api/v1/admin/workflows/{id}/trigger.
 class AdminWorkflowTriggerBody(SQLModel):
     trigger_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+# Per-user GitHub OAuth token (M006/S01). One row per user — the GitHub OAuth
+# flow mints this row when a user completes the device/web flow. Both token
+# columns are Fernet-encrypted at rest; they are NEVER included in any public
+# DTO. `installation_id` cross-references the app installation that scoped the
+# token (nullable because a personal token has no installation). FK CASCADE on
+# user delete drops the token — orphan ciphertext is unrecoverable anyway.
+class GitHubUserOAuthToken(SQLModel, table=True):
+    __tablename__ = "github_user_oauth_tokens"
+
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id",
+        primary_key=True,
+        nullable=False,
+        ondelete="CASCADE",
+    )
+    installation_id: int | None = Field(
+        default=None,
+        sa_column=Column(BigInteger, nullable=True),
+    )
+    github_user_id: int | None = Field(
+        default=None,
+        sa_column=Column(BigInteger, nullable=True),
+    )
+    github_login: str | None = Field(default=None, max_length=255, nullable=True)
+    access_token_encrypted: bytes | None = Field(default=None, nullable=True)
+    refresh_token_encrypted: bytes | None = Field(default=None, nullable=True)
+    token_type: str | None = Field(default=None, max_length=64, nullable=True)
+    scope: str | None = Field(default=None, nullable=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# Public DTO for a single github_user_oauth_tokens row. Intentionally excludes
+# both `access_token_encrypted` and `refresh_token_encrypted` — neither field
+# is present on this model so model_validate(row) cannot accidentally serialize
+# ciphertext. Pattern mirrors SystemSettingPublic (omits value_encrypted) and
+# TeamSecretPublic (omits value_encrypted).
+class GitHubUserOAuthTokenStatus(SQLModel):
+    user_id: uuid.UUID
+    installation_id: int | None = None
+    github_user_id: int | None = None
+    github_login: str | None = None
+    token_type: str | None = None
+    scope: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
