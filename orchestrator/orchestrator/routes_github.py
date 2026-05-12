@@ -308,20 +308,46 @@ async def create_repository_route(
             detail="private_must_be_boolean",
         )
     
+    # Look up the installation to determine the owning account
+    try:
+        install_info = await lookup_installation(installation_id, pg_pool=pg_pool)
+    except _NotConfigured as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.detail,
+        )
+    except InstallationTokenMintFailed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "detail": "github_create_repository_failed",
+                "status": exc.status,
+                "reason": exc.reason,
+            },
+        )
+
+    account_login = install_info["account_login"]
+    account_type = install_info["account_type"]
+
+    if account_type == "Organization":
+        create_url = f"https://api.github.com/orgs/{account_login}/repos"
+    else:
+        create_url = "https://api.github.com/user/repos"
+
     # Create repository via GitHub API
     import httpx
-    
+
     create_payload = {
         "name": repo_name.strip(),
         "private": private,
     }
     if description:
         create_payload["description"] = description.strip()
-    
+
     try:
         async with httpx.AsyncClient() as client:
             r = await client.post(
-                "https://api.github.com/user/repos",
+                create_url,
                 headers={
                     "Authorization": f"token {token}",
                     "Accept": "application/vnd.github+json",
