@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M006-ydo2ce/S07/T01",
+  "timestamp": 1778632386842,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -f .gsd/milestones/M006-ydo2ce/evidence/00-preflight.md",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q s17_github_user_oauth_tokens .gsd/milestones/M006-ydo2ce/evidence/00-preflight.md",
+      "exitCode": 0,
+      "durationMs": 6,
+      "verdict": "pass"
+    }
+  ]
+}
