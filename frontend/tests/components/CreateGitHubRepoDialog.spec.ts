@@ -292,9 +292,11 @@ test.describe("CreateGitHubRepoDialog — error branches", () => {
           status: 409,
           contentType: "application/json",
           body: JSON.stringify({
-            detail: "github_user_token_required",
-            installation_id: FAKE_INSTALLATION_ID,
-            reason: "row_missing",
+            detail: {
+              code: "github_user_token_required",
+              installation_id: FAKE_INSTALLATION_ID,
+              reason: "row_missing",
+            },
           }),
         })
       },
@@ -338,9 +340,11 @@ test.describe("CreateGitHubRepoDialog — error branches", () => {
           status: 409,
           contentType: "application/json",
           body: JSON.stringify({
-            detail: "github_user_token_required",
-            installation_id: FAKE_INSTALLATION_ID,
-            reason: "row_missing",
+            detail: {
+              code: "github_user_token_required",
+              installation_id: FAKE_INSTALLATION_ID,
+              reason: "row_missing",
+            },
           }),
         })
       },
@@ -508,7 +512,7 @@ test.describe("CreateGitHubRepoDialog — error branches", () => {
           status: 409,
           contentType: "application/json",
           body: JSON.stringify({
-            detail: "github_user_token_required",
+            detail: { code: "github_user_token_required" },
           }),
         })
       },
