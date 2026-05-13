@@ -31,7 +31,7 @@ Upstream surfaces consumed: every slice in M006-ydo2ce. New wiring: none — S07
   - Files: `.gsd/milestones/M006-ydo2ce/evidence/scenario1-personal-happy.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario1-orchestrator.log`, `.gsd/milestones/M006-ydo2ce/M006-ydo2ce-SUMMARY.md`
   - Verify: gh repo view <personal>/m006-acceptance-personal-<ts> && grep -q token_class=user_token .gsd/milestones/M006-ydo2ce/evidence/scenario1-orchestrator.log
 
-- [ ] **T03: Scenario 2 — Pre-M006 reinstall flow + evidence capture** `est:45m`
+- [x] **T03: Scenario 2 — Pre-M006 reinstall flow + evidence capture** `est:45m`
   Scenario 2 proves the CTA flow works for the migration-edge case (users who installed before this milestone deployed). This is the most-likely path for the first weeks after deploy. Execute steps in must-have (5): DELETE FROM github_user_oauth_tokens WHERE user_id = <operator-uuid> to simulate pre-M006 state. Open modal, attempt create. Expect inline error with reinstall CTA, submit button hidden, Cancel visible. Click Reinstall on GitHub. Complete install in new tab. Re-open modal, retry. Expect success. Capture CTA screenshot, post-retry success screenshot, then backend log excerpts.
   - Files: `.gsd/milestones/M006-ydo2ce/evidence/scenario2-cta.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario2-success.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log`, `.gsd/milestones/M006-ydo2ce/M006-ydo2ce-SUMMARY.md`
   - Verify: grep -q "github_user_token_required.*reason=row_missing" .gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log && grep -q github_user_token_persisted .gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M006-ydo2ce/S07/T03",
+  "timestamp": 1778637346030,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "grep -q \"github_user_token_required.*reason=row_missing\" .gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log",
+      "exitCode": 0,
+      "durationMs": 7,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q github_user_token_persisted .gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log",
+      "exitCode": 0,
+      "durationMs": 5,
+      "verdict": "pass"
+    }
+  ]
+}
