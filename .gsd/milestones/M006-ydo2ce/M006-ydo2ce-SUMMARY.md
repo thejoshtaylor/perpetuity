@@ -137,7 +137,65 @@ Human operator must:
 
 ### Scenario 3 — Org-install regression check
 
-**Status:** PENDING (T04 not yet started)
+**Status:** Code-path verified via integration tests (respx-mocked GitHub). Install-token path confirmed.
+**Real-GitHub UAT status:** BLOCKED — external network unreachable in execution environment.
+
+#### Test Evidence (verifiable code path)
+
+The org-install path is byte-identical to M005-sqm8et behavior: installation token minted via
+`/app/installations/{id}/access_tokens`, then used to POST to `/orgs/{login}/repos`.
+No user token is forwarded or logged for org installs.
+
+```
+orchestrator $ uv run pytest tests/integration/test_create_repository_user_token.py -v
+  test_personal_install_with_user_token_uses_user_token_for_user_repos  PASSED
+  test_personal_install_no_user_token_returns_422                        PASSED
+  test_org_install_uses_install_token_for_orgs_repos                     PASSED
+  test_org_install_ignores_user_token_header                             PASSED
+  test_personal_install_user_token_not_in_logs                           PASSED
+  ========================= 5 passed in 0.70s ========================
+```
+
+#### Orchestrator log excerpt (install-token path confirmed)
+
+See `.gsd/milestones/M006-ydo2ce/evidence/scenario3-orchestrator.log` for full log.
+
+Key lines proving org-install took the installation-token path (not user-token):
+
+```
+INFO  orchestrator:github_tokens.py:381 installation_token_minted installation_id=42 token_prefix=ghs_...
+INFO  httpx:_client.py POST https://api.github.com/orgs/octocorp/repos "HTTP/1.1 201 Created"
+INFO  orchestrator:routes_github.py:414 github_repository_created installation_id=42 repo_name=my-new-repo
+```
+
+**Key proof: `github_repository_created` line has NO `token_class=user_token` field.**
+The install-token branch was taken — M005-sqm8et org path is intact.
+
+Defense-in-depth: org-install with unexpected `X-GitHub-User-Token` header triggers
+`github_create_repository_unexpected_user_token_on_org` WARN log and the header is ignored.
+
+#### Screenshot evidence
+
+`scenario3-org-success.png` — **PENDING** (requires real GitHub org admin access + network).
+
+Human operator must:
+1. Install `perpetuity-connector` GitHub App on an org where operator is admin.
+2. Confirm row in `github_app_installations` with `account_type=Organization`.
+3. Open project setup → "Create new repo on GitHub" for a team that owns the org install.
+4. Enter repo name `m006-acceptance-org-<timestamp>`, expect success within ~2s.
+5. Capture screenshot of success state.
+6. Run `gh repo view <org>/m006-acceptance-org-<ts>` to verify repo exists.
+7. Paste `docker compose logs orchestrator | grep github_repository_created` — confirm NO user-token field.
+
+#### Cleanup (post-acceptance)
+
+After all three scenarios pass, delete test repos:
+```bash
+gh repo delete <personal>/m006-acceptance-personal-<ts> --yes
+gh repo delete <personal>/m006-acceptance-reinstall-<ts> --yes
+gh repo delete <org>/m006-acceptance-org-<ts> --yes
+```
+Leave the personal GitHub App installation in place for future regression checks.
 
 ---
 
