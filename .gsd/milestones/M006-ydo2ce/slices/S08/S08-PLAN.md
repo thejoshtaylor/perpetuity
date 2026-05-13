@@ -31,7 +31,7 @@ Upstream: S04 backend HTTPException at github.py:1237-1244 produces `{"detail": 
   - Files: `frontend/src/components/Teams/Projects/CreateGitHubRepoDialog.tsx`
   - Verify: cd frontend && npx tsc --noEmit
 
-- [ ] **T02: Align Playwright mock responses to nested 409 shape and verify all 7 tests pass** `est:20m`
+- [x] **T02: Align Playwright mock responses to nested 409 shape and verify all 7 tests pass** `est:20m`
   ## Why
   All Playwright mocks in CreateGitHubRepoDialog.spec.ts currently use the flat shape `{"detail": "github_user_token_required", "installation_id": N, "reason": "..."}` which doesn't match the real backend. After T01 fixes the parsing, these mocks must be updated to the nested shape so the tests exercise the real contract.
   - Files: `frontend/tests/components/CreateGitHubRepoDialog.spec.ts`
