@@ -192,15 +192,15 @@ export const CreateGitHubRepoDialog = ({
         const body = await res.json()
         if (
           res.status === 409 &&
-          body.detail === "github_user_token_required"
+          body.detail?.code === "github_user_token_required"
         ) {
           console.warn("github_user_token_required", {
-            installationId: body.installation_id,
-            reason: body.reason,
+            installationId: body.detail?.installation_id,
+            reason: body.detail?.reason,
           })
           throw new GitHubUserTokenRequiredError(
-            body.installation_id,
-            body.reason,
+            body.detail?.installation_id,
+            body.detail?.reason,
           )
         }
         if (

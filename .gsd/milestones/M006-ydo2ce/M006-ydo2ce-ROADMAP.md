@@ -30,8 +30,11 @@
 - [x] **S06: S06** `risk:low` `depends:[]`
   > After this: Playwright test mocks the backend to return 409 {"detail":"github_user_token_required","installation_id":12345,"reason":"row_missing"} on the create-repository POST. The dialog renders an inline error with the documented copy AND a button labeled "Reinstall on GitHub". Clicking the button calls GET /api/v1/teams/{teamId}/github/install-url (mocked to return install_url), then opens that URL via window.open(url, "_blank", "noopener,noreferrer"). The component test asserts the inline error is visible, the button is visible, and clicking the button fetches the install URL and calls window.open with the right url + noopener,noreferrer flags.
 
-- [ ] **S07: S07** `risk:medium` `depends:[]`
+- [x] **S07: S07** `risk:medium` `depends:[]`
   > After this: A human operator performs each of the three CONTEXT scenarios end-to-end against a real GitHub App installation pointed at real GitHub accounts, captures evidence (screenshot of UI success state, docker compose logs orchestrator backend excerpt showing the correct branch was taken), and pastes those artifacts into M006-ydo2ce-SUMMARY.md under a 'Final Integrated Acceptance Evidence' section.
+
+- [ ] **S08: S08** `risk:low` `depends:[]`
+  > After this: After this: CreateGitHubRepoDialog.tsx correctly parses the nested `body.detail.code` field from the backend 409 response. Playwright test mocks use the actual backend shape `{"detail": {"code": "github_user_token_required", "installation_id": N, "reason": "..."}}`. All 7+ Playwright tests pass with the corrected mocks. Backend integration tests confirm no regression.
 
 ## Boundary Map
 

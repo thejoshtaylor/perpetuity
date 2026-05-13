@@ -36,7 +36,7 @@ Upstream surfaces consumed: every slice in M006-ydo2ce. New wiring: none — S07
   - Files: `.gsd/milestones/M006-ydo2ce/evidence/scenario2-cta.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario2-success.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log`, `.gsd/milestones/M006-ydo2ce/M006-ydo2ce-SUMMARY.md`
   - Verify: grep -q "github_user_token_required.*reason=row_missing" .gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log && grep -q github_user_token_persisted .gsd/milestones/M006-ydo2ce/evidence/scenario2-backend.log
 
-- [ ] **T04: Scenario 3 — Org-install regression + evidence capture + cleanup** `est:30m`
+- [x] **T04: Scenario 3 — Org-install regression + evidence capture + cleanup** `est:30m`
   Scenario 3 is the explicit regression-protection check. If it fails, M005-sqm8et's org path has been broken by this milestone — must reopen the affected slice. Execute steps in must-have (6): install App on real GitHub organization, confirm install lands in github_app_installations with account_type=Organization. Open create-repo modal for team that owns org install. Enter repo_name = m006-acceptance-org-<timestamp>. Expect success within ~2s. Capture screenshot + orchestrator log. After all three scenarios pass: cleanup per must-have (8) — delete three test repos via gh, leave personal install in place for future regression checks.
   - Files: `.gsd/milestones/M006-ydo2ce/evidence/scenario3-org-success.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario3-orchestrator.log`, `.gsd/milestones/M006-ydo2ce/M006-ydo2ce-SUMMARY.md`
   - Verify: ! grep -q token_class=user_token .gsd/milestones/M006-ydo2ce/evidence/scenario3-orchestrator.log && gh repo view <personal>/m006-acceptance-personal-<ts> 2>&1 | grep -q 'Could not resolve'
