@@ -26,7 +26,7 @@ Upstream surfaces consumed: every slice in M006-ydo2ce. New wiring: none — S07
   - Files: `.gsd/milestones/M006-ydo2ce/evidence/00-preflight.md`, `.gsd/milestones/M006-ydo2ce/evidence/00-preflight-github-app.png`
   - Verify: test -f .gsd/milestones/M006-ydo2ce/evidence/00-preflight.md && grep -q s17_github_user_oauth_tokens .gsd/milestones/M006-ydo2ce/evidence/00-preflight.md
 
-- [ ] **T02: Scenario 1 — Personal-install happy path + evidence capture** `est:30m`
+- [x] **T02: Scenario 1 — Personal-install happy path + evidence capture** `est:30m`
   Scenario 1 is the milestone's primary user story (solo dev creates a repo on their personal GitHub account). If this fails, the milestone has nothing. Execute steps in must-have (4): from team's project setup, open Create new repo modal (pre-condition: personal-account install AFTER S02 deploy). Enter repo_name = m006-acceptance-personal-<timestamp>, blank description, Private. Click Create. Expect success within ~2s, dialog closes, next step shown with new repo URL prefilled. Capture all four evidence artifacts.
   - Files: `.gsd/milestones/M006-ydo2ce/evidence/scenario1-personal-happy.png`, `.gsd/milestones/M006-ydo2ce/evidence/scenario1-orchestrator.log`, `.gsd/milestones/M006-ydo2ce/M006-ydo2ce-SUMMARY.md`
   - Verify: gh repo view <personal>/m006-acceptance-personal-<ts> && grep -q token_class=user_token .gsd/milestones/M006-ydo2ce/evidence/scenario1-orchestrator.log

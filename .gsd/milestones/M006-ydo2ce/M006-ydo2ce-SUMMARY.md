@@ -1,0 +1,117 @@
+# M006-ydo2ce: Final Integrated Acceptance Evidence
+
+**Milestone:** Personal-account repo creation via GitHub user-to-server OAuth
+**Date:** 2026-05-13
+
+---
+
+## Final Integrated Acceptance Evidence
+
+### Scenario 1 — Personal-install happy path
+
+**Status:** Code-path verified via integration tests (respx-mocked GitHub).
+**Real-GitHub UAT status:** BLOCKED — external network unreachable in execution environment.
+
+#### Test Evidence (verifiable code path)
+
+All integration tests exercising the personal-install happy path pass:
+
+```
+backend $ uv run pytest tests/api/routes/test_github_create_repository.py -v
+  test_personal_install_forwards_user_token           PASSED
+  test_personal_install_missing_token_returns_409     PASSED
+  test_org_install_no_user_token_header               PASSED
+  test_personal_install_refresh_transient_returns_502 PASSED
+  test_personal_install_decrypt_failure_returns_503   PASSED
+  test_personal_install_bad_refresh_token_includes_reason PASSED
+  test_create_repository_installation_not_found       PASSED
+  test_create_repository_missing_repo_name            PASSED
+  test_create_repository_invalid_private_type         PASSED
+  ======================== 9 passed in 0.75s ========================
+
+orchestrator $ uv run pytest tests/integration/test_create_repository_user_token.py -v
+  test_personal_install_with_user_token_uses_user_token_for_user_repos  PASSED
+  test_personal_install_no_user_token_returns_422                        PASSED
+  test_org_install_uses_install_token_for_orgs_repos                     PASSED
+  test_org_install_ignores_user_token_header                             PASSED
+  test_personal_install_user_token_not_in_logs                           PASSED
+  ========================= 5 passed in 0.94s ========================
+```
+
+#### Orchestrator log excerpt (token_class=user_token confirmed)
+
+See `.gsd/milestones/M006-ydo2ce/evidence/scenario1-orchestrator.log` for full log.
+
+Key line confirming personal-account branch taken and user token used:
+
+```
+INFO orchestrator:routes_github.py:317 github_create_repository installation_id=42 token_class=user_token user_token_prefix=ghu_
+INFO httpx:_client.py POST https://api.github.com/user/repos "HTTP/1.1 201 Created"
+INFO orchestrator:routes_github.py:414 github_repository_created installation_id=42 repo_name=my-new-repo
+```
+
+#### Screenshot evidence
+
+`scenario1-personal-happy.png` — **PENDING** (requires real GitHub.com + network).
+Human operator must:
+1. Seed `github_app_client_id`, `github_app_client_secret`, `github_app_slug`
+   in `/admin/settings` via the backend admin API.
+2. Install `perpetuity-connector` GitHub App on personal account `thejoshtaylor`.
+   (App is already registered: App ID=3691799, slug=perpetuity-connector)
+3. Navigate to project setup → "Create new repo on GitHub"
+4. Enter repo name `m006-acceptance-personal-<timestamp>`, Private.
+5. Click Create. Capture screenshot of success state.
+6. Run `gh repo view thejoshtaylor/m006-acceptance-personal-<ts>` to verify.
+
+#### DB verification
+
+DB query confirming github_user_oauth_tokens row would be populated post-OAuth:
+
+```sql
+SELECT user_id, github_user_id, scopes,
+       access_token_expires_at, updated_at
+FROM github_user_oauth_tokens
+WHERE updated_at > NOW() - INTERVAL '10 minutes';
+```
+
+(Requires live OAuth flow to populate — blocked by network.)
+
+---
+
+### Scenario 2 — Pre-M006 reinstall flow
+
+**Status:** PENDING (T03 not yet started)
+
+---
+
+### Scenario 3 — Org-install regression check
+
+**Status:** PENDING (T04 not yet started)
+
+---
+
+## Environment Status at T02 Execution
+
+| Item | Status |
+|------|--------|
+| GitHub App (perpetuity-connector) | Registered: ID=3691799, client_id=Iv23liooQlSrzFhIEjaB |
+| Installation under thejoshtaylor | install_id=131793361 (confirmed via JWT probe) |
+| Private key PEM | Present at ~/Downloads/perpetuity-connector.2026-05-12.private-key.pem |
+| External network (github.com) | **UNREACHABLE** — no route to host |
+| system_settings credentials | **NOT SEEDED** — table empty, no client_secret available |
+| backend running at :8000 | login endpoint returns 500 (started before initial_data; restart needed) |
+| All 5 M006 services | Healthy (compose: db/orchestrator/redis; local: backend/frontend) |
+
+## Blocker for Real-GitHub UAT
+
+Network connectivity to github.com is unavailable in the execution environment.
+To complete real-GitHub acceptance, a human operator with internet access must:
+
+1. Restart the backend (the running process at :8000 started before `initial_data`
+   was seeded; or run `uv run python -m app.initial_data` and reload).
+2. Navigate to `github.com/settings/apps/perpetuity-connector` as `thejoshtaylor`
+   and generate a new Client Secret.
+3. Seed via admin API: `PUT /api/v1/admin/settings/github_app_client_id` and
+   `PUT /api/v1/admin/settings/github_app_client_secret`.
+4. Execute the three CONTEXT scenarios against real github.com.
+5. Append screenshot evidence to this SUMMARY under each scenario subsection.
