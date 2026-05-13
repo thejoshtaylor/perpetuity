@@ -1228,6 +1228,12 @@ async def create_github_repository(
                 ) from exc
             # row_missing | bad_refresh_token | refresh_rejected |
             # refresh_unexpected_response → 409 so CTA can branch
+            logger.info(
+                "github_user_token_required user_id=%s installation_id=%s reason=%s",
+                current_user.id,
+                installation_id,
+                exc.reason,
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
